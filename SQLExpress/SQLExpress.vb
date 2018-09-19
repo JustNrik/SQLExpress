@@ -167,10 +167,10 @@ Public NotInheritable Class SQLExpressClient
                                         $"VALUES ({properties.Select(Function(x) $"{GetSqlValue(x, obj)}").Aggregate(Function(x, y) x & ", " & y)})", con)
                 Await cmd.ExecuteNonQueryAsync
             End Using
+            Dim newObj = Await LoadObjectAsync(obj)
+            Cache.TryAdd(newObj.Id, newObj)
+            Return newObj
         End Using
-        Dim newObj = Await LoadObjectAsync(obj)
-        Cache.TryAdd(newObj.Id, newObj)
-        Return newObj
     End Function
     ''' <summary>
     ''' Adds a new Object to the database. Throws when fail.
