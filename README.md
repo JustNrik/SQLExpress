@@ -100,7 +100,7 @@ public class Person : SQLObject
 Public Class Person
     Inherits SQLObject
 
-    Private Overrides ReadOnly Property Name As String
+    Public Overrides ReadOnly Property Name As String
     Get
         Return "persons"
     End Get
