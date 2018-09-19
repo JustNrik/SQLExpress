@@ -1,4 +1,4 @@
-Option Compare Text
+﻿Option Compare Text
 #Region "Imports"
 Imports Newtonsoft.Json.Linq
 Imports System.Collections.Concurrent
@@ -131,11 +131,11 @@ Public NotInheritable Class SQLExpressClient
                         With sb
                             .AppendLine($"CREATE TABLE {obj.Name} (")
                             Dim properties = obj.GetType.GetProperties.
-                                Where(Function(x) x.GetCustomAttribute(Of PriorityAttribute)(True) IsNot Nothing).
-                                OrderByDescending(Function(x) x.GetCustomAttribute(Of PriorityAttribute)(True).Priority).ToImmutableList
+                                Where(Function(x) x.GetCustomAttribute(Of StoreAttribute)(True) IsNot Nothing).
+                                OrderByDescending(Function(x) x.GetCustomAttribute(Of StoreAttribute)(True).Priority).ToImmutableList
                             If properties.Count = 0 Then Throw New EmptyObjectException
                             For Each [Property] In properties
-                                .Append($"{[Property].Name} {ParseType([Property].PropertyType.Name)} ")
+                                .Append($"{[Property].Name} {ParseType([Property].PropertyType.Name, [Property].GetCustomAttribute(Of StringLengthAttribute)(True)?.Length)} ")
                                 .Append($"{If([Property].GetCustomAttribute(Of NotNullAttribute)(True) IsNot Nothing, "NOT NULL", "")} ")
                                 .Append($"{If([Property].GetCustomAttribute(Of PrimaryKeyAttribute)(True) IsNot Nothing, "PRIMARY KEY", "")}")
                                 If [Property] Is properties.Last() Then .AppendLine(")") Else .AppendLine(",")
@@ -158,8 +158,8 @@ Public NotInheritable Class SQLExpressClient
     Public Async Function CreateNewObjectAsync(Of T As {SQLObject})(obj As T) As Task(Of T)
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync()
             Dim properties = obj.GetType.GetProperties.
-                Where(Function(x) x.GetCustomAttribute(Of PriorityAttribute)(True) IsNot Nothing).
-                OrderBy(Function(x) x.GetCustomAttribute(Of PriorityAttribute)(True).Priority).ToImmutableList
+                Where(Function(x) x.GetCustomAttribute(Of StoreAttribute)(True) IsNot Nothing).
+                OrderByDescending(Function(x) x.GetCustomAttribute(Of StoreAttribute)(True).Priority).ToImmutableList
             If properties.Count = 0 Then Throw New EmptyObjectException
             Using cmd As New SqlCommand($"INSERT INTO {obj.Name} ({properties.Select(Function(x) x.Name).Aggregate(Function(x, y) x & ", " & y)})" &
                                         $"VALUES ({properties.Select(Function(x) $"{GetSqlValue(x, obj)}").Aggregate(Function(x, y) x & ", " & y)})", con)
@@ -186,14 +186,10 @@ Public NotInheritable Class SQLExpressClient
     ''' <returns></returns>
     Public Async Function LoadObjectAsync(Of T As {SQLObject})(toLoad As T) As Task(Of T)
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync
-            Dim result As Integer
-            Using cmd As New SqlCommand($"SELECT COUNT(Id) FROM {toLoad.Name} WHERE Id = {toLoad.Id}", con)
-                result = DirectCast(Await cmd.ExecuteScalarAsync, Integer)
-            End Using
-            If result = 0 Then Return Await CreateNewObjectAsync(toLoad)
+            If Not Await CheckExistenceAsync(toLoad, con) Then Return Await CreateNewObjectAsync(toLoad)
             Dim propertyNames = toLoad.GetType.GetProperties.
-                Where(Function(x) x.GetCustomAttribute(Of PriorityAttribute)(True) IsNot Nothing).
-                OrderBy(Function(x) x.GetCustomAttribute(Of PriorityAttribute)(True).Priority).
+                Where(Function(x) x.GetCustomAttribute(Of StoreAttribute)(True) IsNot Nothing).
+                OrderByDescending(Function(x) x.GetCustomAttribute(Of StoreAttribute)(True).Priority).
                 Select(Function(x) x.Name).ToImmutableList
             If propertyNames.Count = 0 Then Throw New EmptyObjectException
             Using cmd As New SqlCommand($"SELECT* FROM {toLoad.Name} WHERE Id = {toLoad.Id}", con)
@@ -219,48 +215,91 @@ Public NotInheritable Class SQLExpressClient
         Return Await LoadObjectAsync(obj)
     End Function
     ''' <summary>
-    ''' Saves the Object, creates a new one if it doesn't exist.
+    ''' Updates the Object, creates a new one if it doesn't exist.
     ''' </summary>
     ''' <typeparam name="T"></typeparam>
-    ''' <param name="toSave"></param>
+    ''' <param name="toUpdate"></param>
     ''' <returns></returns>
-    Public Async Function SaveObjectAsync(Of T As {SQLObject})(toSave As T) As Task
+    Public Async Function UpdateObjectAsync(Of T As {SQLObject})(toUpdate As T) As Task(Of T)
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync
-            Dim result As Integer
-            Using cmd As New SqlCommand($"SELECT COUNT(Id) FROM {toSave.Name} WHERE Id = {toSave.Id}", con)
-                result = DirectCast(Await cmd.ExecuteScalarAsync, Integer)
-            End Using
-            If result = 0 Then Await CreateNewObjectAsync(toSave)
-            Dim properties = toSave.GetType.GetProperties.
-                Where(Function(x) x.GetCustomAttribute(Of PriorityAttribute)(True) IsNot Nothing AndAlso x.GetCustomAttribute(Of PrimaryKeyAttribute)(True) Is Nothing).
-                OrderBy(Function(x) x.GetCustomAttribute(Of PriorityAttribute)(True).Priority).ToImmutableList
+            If Not Await CheckExistenceAsync(toUpdate, con) Then
+                Return Await CreateNewObjectAsync(toUpdate)
+            End If
+            Dim properties = toUpdate.GetType.GetProperties.
+                Where(Function(x) x.GetCustomAttribute(Of StoreAttribute)(True) IsNot Nothing AndAlso x.GetCustomAttribute(Of PrimaryKeyAttribute)(True) Is Nothing).
+                OrderByDescending(Function(x) x.GetCustomAttribute(Of StoreAttribute)(True).Priority).ToImmutableList
             If properties.Count = 0 Then Throw New EmptyObjectException
             Dim sb As New StringBuilder
             With sb
-                .AppendLine($"UPDATE {toSave.Name}")
+                .AppendLine($"UPDATE {toUpdate.Name}")
                 .Append("SET ")
                 For Each [Property] In properties
-                    .AppendLine($"{[Property].Name} = {GetSqlValue([Property], toSave)}{If([Property] IsNot properties.Last, ",", "")}")
+                    .AppendLine($"{[Property].Name} = {GetSqlValue([Property], toUpdate)}{If([Property] IsNot properties.Last, ",", "")}")
                 Next
-                .AppendLine($"WHERE Id = {toSave.Id}")
+                .AppendLine($"WHERE Id = {toUpdate.Id}")
             End With
             Using cmd As New SqlCommand($"{sb}", con)
+                Await cmd.ExecuteNonQueryAsync
+            End Using
+            Return Await LoadObjectAsync(toUpdate)
+        End Using
+    End Function
+    ''' <summary>
+    ''' Updates the Object, creates a new one if it doesn't exist.
+    ''' </summary>
+    ''' <typeparam name="T"></typeparam>
+    ''' <param name="id"></param>
+    ''' <returns></returns>
+    Public Async Function UpdateObjectAsync(Of T As {New, SQLObject})(id As ULong) As Task(Of T)
+        Dim obj As New T With {.Id = id}
+        Return Await UpdateObjectAsync(obj)
+    End Function
+    ''' <summary>
+    ''' Removes the Object if exists
+    ''' </summary>
+    ''' <typeparam name="T"></typeparam>
+    ''' <param name="toRemove"></param>
+    ''' <returns></returns>
+    Public Async Function RemoveObjectAsync(Of T As {SQLObject})(toRemove As T) As Task
+        Using con As New SqlConnection(_connectionString) : Await con.OpenAsync
+            If Not Await CheckExistenceAsync(toRemove, con) Then Return
+            Using cmd As New SqlCommand($"DELETE FROM {toRemove.Name} WHERE Id = {toRemove.Id}")
                 Await cmd.ExecuteNonQueryAsync
             End Using
         End Using
     End Function
     ''' <summary>
-    ''' Saves the Object, creates a new one if it doesn't exist.
+    ''' Removes the Object if exists
     ''' </summary>
     ''' <typeparam name="T"></typeparam>
     ''' <param name="id"></param>
     ''' <returns></returns>
-    Public Async Function SaveObjectAsync(Of T As {New, SQLObject})(id As ULong) As Task
+    Public Async Function RemoveObjectAsync(Of T As {New, SQLObject})(id As ULong) As Task
         Dim obj As New T With {.Id = id}
-        Await SaveObjectAsync(obj)
+        Await RemoveObjectAsync(obj)
+    End Function
+    ''' <summary>
+    ''' Checks the existence of an Object, optionally you can provide an Open connection.
+    ''' </summary>
+    ''' <typeparam name="T"></typeparam>
+    ''' <param name="obj"></param>
+    ''' <param name="con"></param>
+    ''' <returns></returns>
+    Public Async Function CheckExistenceAsync(Of T As {SQLObject})(obj As T, Optional con As SqlConnection = Nothing) As Task(Of Boolean)
+        If con Is Nothing Then
+            Using cmd As New SqlCommand($"SELECT COUNT(Id) FROM {obj.Name} WHERE Id = {obj.Id}", con)
+                Return DirectCast(Await cmd.ExecuteScalarAsync, Integer) = 1
+            End Using
+        Else
+            Using conn As New SqlConnection(_connectionString) : Await conn.OpenAsync
+                Using cmd As New SqlCommand($"SELECT COUNT(Id) FROM {obj.Name} WHERE Id = {obj.Id}", con)
+                    Return DirectCast(Await cmd.ExecuteScalarAsync, Integer) = 1
+                End Using
+            End Using
+        End If
     End Function
 #Region "Private Methods"
-    Private Function ParseType(typeName As String) As String
+    Private Function ParseType(typeName As String, Optional stringLimit As Byte? = Nothing) As String
         With typeName
             Select Case True
                 Case .Contains("Int64") : Return "BIGINT"
@@ -274,7 +313,7 @@ Public NotInheritable Class SQLExpressClient
                 Case .Contains("TimeSpan") : Return "TIME"
                 Case .Contains("DateTimeOffset") : Return "DATETIMEOFFSET"
                 Case .Contains("Boolean") : Return "BIT"
-                Case .Contains("String") : Return $"VARCHAR({_stringLimit})"
+                Case .Contains("String") : Return $"VARCHAR({If(stringLimit, _stringLimit)})"
             End Select
         End With
         Throw New UnsupportedTypeException
@@ -286,7 +325,7 @@ Public NotInheritable Class SQLExpressClient
         Dim typeName = ParseType([Property].PropertyType.Name)
         Select Case typeName
             Case "BIGINT", "SMALLINT", "INT", "TINYINT", "DECIMAL", "FLOAT", "REAL" : Return $"{value}"
-            Case "DATE", "TIME", "DATETIMEOFFSET", $"VARCHAR({_stringLimit})" : Return $"'{value}'"
+            Case "DATE", "TIME", "DATETIMEOFFSET", $"VARCHAR({If([Property].GetCustomAttribute(Of StringLengthAttribute)(True)?.Length, _stringLimit)})" : Return $"'{value}'"
             Case "BIT" : Return $"{If(DirectCast(value, Boolean) = True, 1, 0)}"
             Case Else : Throw New UnsupportedTypeException
         End Select

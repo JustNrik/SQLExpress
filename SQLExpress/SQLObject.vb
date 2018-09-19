@@ -5,13 +5,14 @@
     ''' <returns></returns>
     <NotNull>
     <PrimaryKey>
-    <Priority(Integer.MaxValue)>
+    <Store(255)>
     Public Property Id As ULong
     ''' <summary>
     ''' Sets the name of the object. This name is used to create a table in the database.
     ''' </summary>
     ''' <returns></returns>
     Public MustOverride ReadOnly Property Name As String
+
 
     Sub New(Id As ULong)
         Me.Id = Id
