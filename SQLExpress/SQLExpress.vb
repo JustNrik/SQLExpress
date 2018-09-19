@@ -115,7 +115,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="objs"></param>
     ''' <returns></returns>
 #End Region
-    Public Async Function SetupObjects(Of T As {SQLObject})(ParamArray objs As T()) As Task
+    Public Async Function InitialiseObjects(Of T As {SQLObject})(ParamArray objs As T()) As Task
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync()
             For Each obj In objs
                 Dim result As Integer
@@ -144,7 +144,9 @@ Public NotInheritable Class SQLExpressClient
                         Using newCmd As New SqlCommand($"{sb}", con)
                             Await newCmd.ExecuteNonQueryAsync
                         End Using
-                    Case 1 : Continue For
+                    Case 1
+                        Dim newObj = Await LoadObjectAsync(obj)
+                        Cache.TryAdd(newObj.Id, newObj)
                 End Select
             Next
         End Using
@@ -164,9 +166,11 @@ Public NotInheritable Class SQLExpressClient
             Using cmd As New SqlCommand($"INSERT INTO {obj.Name} ({properties.Select(Function(x) x.Name).Aggregate(Function(x, y) x & ", " & y)})" &
                                         $"VALUES ({properties.Select(Function(x) $"{GetSqlValue(x, obj)}").Aggregate(Function(x, y) x & ", " & y)})", con)
                 Await cmd.ExecuteNonQueryAsync
-                Return Await LoadObjectAsync(obj)
             End Using
         End Using
+        Dim newObj = Await LoadObjectAsync(obj)
+        Cache.TryAdd(newObj.Id, newObj)
+        Return newObj
     End Function
     ''' <summary>
     ''' Adds a new Object to the database. Throws when fail.
@@ -185,12 +189,13 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="toLoad"></param>
     ''' <returns></returns>
     Public Async Function LoadObjectAsync(Of T As {SQLObject})(toLoad As T) As Task(Of T)
+        Dim obj As SQLObject = Nothing
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync
             If Not Await CheckExistenceAsync(toLoad, con) Then Return Await CreateNewObjectAsync(toLoad)
             Dim propertyNames = toLoad.GetType.GetProperties.
-                Where(Function(x) x.GetCustomAttribute(Of StoreAttribute)(True) IsNot Nothing).
-                OrderByDescending(Function(x) x.GetCustomAttribute(Of StoreAttribute)(True).Priority).
-                Select(Function(x) x.Name).ToImmutableList
+                    Where(Function(x) x.GetCustomAttribute(Of StoreAttribute)(True) IsNot Nothing).
+                    OrderByDescending(Function(x) x.GetCustomAttribute(Of StoreAttribute)(True).Priority).
+                    Select(Function(x) x.Name).ToImmutableList
             If propertyNames.Count = 0 Then Throw New EmptyObjectException
             Using cmd As New SqlCommand($"SELECT* FROM {toLoad.Name} WHERE Id = {toLoad.Id}", con)
                 Using r = Await cmd.ExecuteReaderAsync
@@ -211,8 +216,8 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="id"></param>
     ''' <returns></returns>
     Public Async Function LoadObjectAsync(Of T As {New, SQLObject})(id As ULong) As Task(Of T)
-        Dim obj As New T With {.Id = id}
-        Return Await LoadObjectAsync(obj)
+        Dim toLoad As New T With {.Id = id}
+        Return Await LoadObjectAsync(toLoad)
     End Function
     ''' <summary>
     ''' Updates the Object, creates a new one if it doesn't exist.
@@ -222,9 +227,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <returns></returns>
     Public Async Function UpdateObjectAsync(Of T As {SQLObject})(toUpdate As T) As Task(Of T)
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync
-            If Not Await CheckExistenceAsync(toUpdate, con) Then
-                Return Await CreateNewObjectAsync(toUpdate)
-            End If
+            If Not Await CheckExistenceAsync(toUpdate, con) Then Return Await CreateNewObjectAsync(toUpdate)
             Dim properties = toUpdate.GetType.GetProperties.
                 Where(Function(x) x.GetCustomAttribute(Of StoreAttribute)(True) IsNot Nothing AndAlso x.GetCustomAttribute(Of PrimaryKeyAttribute)(True) Is Nothing).
                 OrderByDescending(Function(x) x.GetCustomAttribute(Of StoreAttribute)(True).Priority).ToImmutableList
@@ -241,7 +244,9 @@ Public NotInheritable Class SQLExpressClient
             Using cmd As New SqlCommand($"{sb}", con)
                 Await cmd.ExecuteNonQueryAsync
             End Using
-            Return Await LoadObjectAsync(toUpdate)
+            Dim newObj = Await LoadObjectAsync(toUpdate)
+            Cache(newObj.Id) = newObj
+            Return newObj
         End Using
     End Function
     ''' <summary>
@@ -251,8 +256,8 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="id"></param>
     ''' <returns></returns>
     Public Async Function UpdateObjectAsync(Of T As {New, SQLObject})(id As ULong) As Task(Of T)
-        Dim obj As New T With {.Id = id}
-        Return Await UpdateObjectAsync(obj)
+        Dim toUpdate As New T With {.Id = id}
+        Return Await UpdateObjectAsync(toUpdate)
     End Function
     ''' <summary>
     ''' Removes the Object if exists
@@ -266,6 +271,7 @@ Public NotInheritable Class SQLExpressClient
             Using cmd As New SqlCommand($"DELETE FROM {toRemove.Name} WHERE Id = {toRemove.Id}")
                 Await cmd.ExecuteNonQueryAsync
             End Using
+            Cache.TryRemove(toRemove.Id, Nothing)
         End Using
     End Function
     ''' <summary>
@@ -275,8 +281,9 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="id"></param>
     ''' <returns></returns>
     Public Async Function RemoveObjectAsync(Of T As {New, SQLObject})(id As ULong) As Task
-        Dim obj As New T With {.Id = id}
-        Await RemoveObjectAsync(obj)
+        Cache.TryRemove(id, Nothing)
+        Dim toRemove As New T With {.Id = id}
+        Await RemoveObjectAsync(toRemove)
     End Function
     ''' <summary>
     ''' Checks the existence of an Object, optionally you can provide an Open connection.
