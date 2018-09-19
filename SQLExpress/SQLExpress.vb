@@ -1,4 +1,4 @@
-﻿Option Compare Text
+Option Compare Text
 #Region "Imports"
 Imports Newtonsoft.Json.Linq
 Imports System.Collections.Concurrent
@@ -155,7 +155,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <typeparam name="T"></typeparam>
     ''' <param name="obj"></param>
     ''' <returns></returns>
-    Public Async Function NewObject(Of T As {SQLObject})(obj As T) As Task(Of T)
+    Public Async Function CreateNewObjectAsync(Of T As {SQLObject})(obj As T) As Task(Of T)
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync()
             Dim properties = obj.GetType.GetProperties.
                 Where(Function(x) x.GetCustomAttribute(Of PriorityAttribute)(True) IsNot Nothing).
@@ -164,7 +164,7 @@ Public NotInheritable Class SQLExpressClient
             Using cmd As New SqlCommand($"INSERT INTO {obj.Name} ({properties.Select(Function(x) x.Name).Aggregate(Function(x, y) x & ", " & y)})" &
                                         $"VALUES ({properties.Select(Function(x) $"{GetSqlValue(x, obj)}").Aggregate(Function(x, y) x & ", " & y)})", con)
                 Await cmd.ExecuteNonQueryAsync
-                Return Await LoadObject(obj)
+                Return Await LoadObjectAsync(obj)
             End Using
         End Using
     End Function
@@ -174,9 +174,9 @@ Public NotInheritable Class SQLExpressClient
     ''' <typeparam name="T"></typeparam>
     ''' <param name="id"></param>
     ''' <returns></returns>
-    Public Async Function NewObject(Of T As {New, SQLObject})(id As ULong) As Task(Of T)
+    Public Async Function CreateNewObjectAsync(Of T As {New, SQLObject})(id As ULong) As Task(Of T)
         Dim obj As New T With {.Id = id}
-        Return Await NewObject(obj)
+        Return Await CreateNewObjectAsync(obj)
     End Function
     ''' <summary>
     ''' Loads the Object, creates a new one if it doesn't exist.
@@ -184,13 +184,13 @@ Public NotInheritable Class SQLExpressClient
     ''' <typeparam name="T"></typeparam>
     ''' <param name="toLoad"></param>
     ''' <returns></returns>
-    Public Async Function LoadObject(Of T As {SQLObject})(toLoad As T) As Task(Of T)
+    Public Async Function LoadObjectAsync(Of T As {SQLObject})(toLoad As T) As Task(Of T)
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync
             Dim result As Integer
             Using cmd As New SqlCommand($"SELECT COUNT(Id) FROM {toLoad.Name} WHERE Id = {toLoad.Id}", con)
                 result = DirectCast(Await cmd.ExecuteScalarAsync, Integer)
             End Using
-            If result = 0 Then Return Await NewObject(toLoad)
+            If result = 0 Then Return Await CreateNewObjectAsync(toLoad)
             Dim propertyNames = toLoad.GetType.GetProperties.
                 Where(Function(x) x.GetCustomAttribute(Of PriorityAttribute)(True) IsNot Nothing).
                 OrderBy(Function(x) x.GetCustomAttribute(Of PriorityAttribute)(True).Priority).
@@ -214,9 +214,9 @@ Public NotInheritable Class SQLExpressClient
     ''' <typeparam name="T"></typeparam>
     ''' <param name="id"></param>
     ''' <returns></returns>
-    Public Async Function LoadObject(Of T As {New, SQLObject})(id As ULong) As Task(Of T)
+    Public Async Function LoadObjectAsync(Of T As {New, SQLObject})(id As ULong) As Task(Of T)
         Dim obj As New T With {.Id = id}
-        Return Await LoadObject(obj)
+        Return Await LoadObjectAsync(obj)
     End Function
     ''' <summary>
     ''' Saves the Object, creates a new one if it doesn't exist.
@@ -224,13 +224,13 @@ Public NotInheritable Class SQLExpressClient
     ''' <typeparam name="T"></typeparam>
     ''' <param name="toSave"></param>
     ''' <returns></returns>
-    Public Async Function SaveObject(Of T As {SQLObject})(toSave As T) As Task
+    Public Async Function SaveObjectAsync(Of T As {SQLObject})(toSave As T) As Task
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync
             Dim result As Integer
             Using cmd As New SqlCommand($"SELECT COUNT(Id) FROM {toSave.Name} WHERE Id = {toSave.Id}", con)
                 result = DirectCast(Await cmd.ExecuteScalarAsync, Integer)
             End Using
-            If result = 0 Then Await NewObject(toSave)
+            If result = 0 Then Await CreateNewObjectAsync(toSave)
             Dim properties = toSave.GetType.GetProperties.
                 Where(Function(x) x.GetCustomAttribute(Of PriorityAttribute)(True) IsNot Nothing AndAlso x.GetCustomAttribute(Of PrimaryKeyAttribute)(True) Is Nothing).
                 OrderBy(Function(x) x.GetCustomAttribute(Of PriorityAttribute)(True).Priority).ToImmutableList
@@ -255,9 +255,9 @@ Public NotInheritable Class SQLExpressClient
     ''' <typeparam name="T"></typeparam>
     ''' <param name="id"></param>
     ''' <returns></returns>
-    Public Async Function SaveObject(Of T As {New, SQLObject})(id As ULong) As Task
+    Public Async Function SaveObjectAsync(Of T As {New, SQLObject})(id As ULong) As Task
         Dim obj As New T With {.Id = id}
-        Await SaveObject(obj)
+        Await SaveObjectAsync(obj)
     End Function
 #Region "Private Methods"
     Private Function ParseType(typeName As String) As String
