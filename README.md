@@ -118,3 +118,5 @@ Public Class Person
 End Class
 ```
 You can also user `NotNull` Attribute to prevent null data to be stored. Keep in mind that it will throw if you attempt to Save null data.
+
+**Note**: The `Name` of the object will be the name of the Table that will be stored in the database.
