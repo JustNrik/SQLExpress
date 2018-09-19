@@ -101,9 +101,10 @@ Public Class Person
     Inherits SQLObject
 
     Public Overrides ReadOnly Property Name As String
-    Get
-        Return "persons"
-    End Get
+        Get
+            Return "persons"
+        End Get
+    End Property
     <Priority(1)>
     Public Property Address As String
     <Priority(2)>
