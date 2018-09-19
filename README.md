@@ -11,16 +11,16 @@ Available on NuGet.
 ```cs
 IServiceProvider ServiceBuilder()
     => new ServiceCollection().
-    AddSingleton<SQLExpressClient>().
-    // Others
-    BuildServiceProvider();
+        AddSingleton<SQLExpressClient>().
+        // Others
+        BuildServiceProvider();
 ```
 ```vb
 Function ServiceBuilder() AS IServiceProvider
     Return New ServiceCollection().
-    AddSingleton(Of SQLExpressClient).
-    ' Others
-    BuildServiceProvider()
+        AddSingleton(Of SQLExpressClient).
+        ' Others
+        BuildServiceProvider()
 End Function
 ```
 2) Load the config from a .JSON or .XML file
