@@ -1,16 +1,15 @@
 ﻿Option Compare Text
-
+#Region "Imports"
 Imports Newtonsoft.Json.Linq
 Imports System.Collections.Concurrent
+Imports System.Collections.Immutable
 Imports System.Data.SqlClient
 Imports System.Reflection
 Imports System.Text
 Imports System.Xml
-Public NotInheritable Class SQLExpress
-    Implements IDisposable
-
-    Public Property Cache As New ConcurrentDictionary(Of ULong, SQLObject)
-
+#End Region
+Public NotInheritable Class SQLExpressClient
+#Region "Fields"
     Private _usingService As Boolean
     Private _connectionString As String
     Private _database As String
@@ -18,38 +17,43 @@ Public NotInheritable Class SQLExpress
     Private _username As String
     Private _password As String
     Private _stringLimit As Integer
+#End Region
+#Region "Properties"
+    Public Property Cache As New ConcurrentDictionary(Of ULong, SQLObject)
     ''' <summary>
     ''' Sets the database where the data will be gathered.
     ''' </summary>
     Public WriteOnly Property Database As String
-        Set(value As String)
-            _database = value
+        Set
+            _database = Value
         End Set
     End Property
     ''' <summary>
     ''' Sets the instance where it will be connected.
     ''' </summary>
-    Public WriteOnly Property SQLServer As String
-        Set(value As String)
-            _sqlServer = value
+    Public WriteOnly Property Server As String
+        Set
+            _sqlServer = Value
         End Set
     End Property
     ''' <summary>
     ''' Sets the username required to log in the database
     ''' </summary>
     Public WriteOnly Property Username As String
-        Set(value As String)
-            _username = value
+        Set
+            _username = Value
         End Set
     End Property
     ''' <summary>
     ''' Sets the password required to log in the database
     ''' </summary>
     Public WriteOnly Property Password As String
-        Set(value As String)
-            _password = value
+        Set
+            _password = Value
         End Set
     End Property
+#End Region
+#Region "Constructors"
     ''' <summary>
     ''' Creates a new instance of this class
     ''' </summary>
@@ -65,7 +69,7 @@ Public NotInheritable Class SQLExpress
         _stringLimit = StringLimit
     End Sub
     ''' <summary>
-    ''' Manually loads the config from an XML Document. You must load the XMlDocument before using this method.
+    ''' Reads the config from a XML Document. You must load the XMlDocument before using this method.
     ''' </summary>
     ''' <param name="xmlConfig"></param>
     Sub New(xmlConfig As XmlDocument, Optional StringLimit As Integer = 20)
@@ -73,22 +77,24 @@ Public NotInheritable Class SQLExpress
         _stringLimit = StringLimit
     End Sub
     ''' <summary>
-    ''' Manually loads the config from a JSON file. You must parse the JObject before using this method.
+    ''' Reads the config from a JSON file. You must parse the JObject before using this method.
     ''' </summary>
     ''' <param name="jConfig"></param>
     Sub New(jConfig As JObject, Optional StringLimit As Integer = 20)
         ReadConfig(jConfig)
         _stringLimit = StringLimit
     End Sub
+#End Region
+#Region "Config"
     ''' <summary>
     ''' Reads the SQL Configuration from an XML Document. Remember to load the document before executing this method.
     ''' </summary>
     ''' <param name="xmlConfig"></param>
     Public Sub ReadConfig(xmlConfig As XmlDocument)
-        _database = $"{xmlConfig("database")}"
-        _sqlServer = $"{xmlConfig("server")}"
-        _username = $"{xmlConfig("username")}"
-        _password = $"{xmlConfig("password")}"
+        _database = xmlConfig.SelectSingleNode("*/database").InnerXml
+        _sqlServer = xmlConfig.SelectSingleNode("*/server").InnerXml
+        _username = xmlConfig.SelectSingleNode("*/username").InnerXml
+        _password = xmlConfig.SelectSingleNode("*/password").InnerXml
         _connectionString = $"Server={_sqlServer};Database={_database};User Id={_username};Password={_password};"
     End Sub
     ''' <summary>
@@ -108,6 +114,7 @@ Public NotInheritable Class SQLExpress
     ''' <typeparam name="T"></typeparam>
     ''' <param name="objs"></param>
     ''' <returns></returns>
+#End Region
     Public Async Function SetupObjects(Of T As {SQLObject})(ParamArray objs As T()) As Task
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync()
             For Each obj In objs
@@ -125,7 +132,7 @@ Public NotInheritable Class SQLExpress
                             .AppendLine($"CREATE TABLE {obj.Name} (")
                             Dim properties = obj.GetType.GetProperties.
                                 Where(Function(x) x.GetCustomAttribute(Of PriorityAttribute)(True) IsNot Nothing).
-                                OrderByDescending(Function(x) x.GetCustomAttribute(Of PriorityAttribute)(True).Priority)
+                                OrderByDescending(Function(x) x.GetCustomAttribute(Of PriorityAttribute)(True).Priority).ToImmutableList
                             If properties.Count = 0 Then Throw New EmptyObjectException
                             For Each [Property] In properties
                                 .Append($"{[Property].Name} {ParseType([Property].PropertyType.Name)} ")
@@ -152,14 +159,19 @@ Public NotInheritable Class SQLExpress
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync()
             Dim properties = obj.GetType.GetProperties.
                 Where(Function(x) x.GetCustomAttribute(Of PriorityAttribute)(True) IsNot Nothing).
-                OrderBy(Function(x) x.GetCustomAttribute(Of PriorityAttribute)(True).Priority)
+                OrderBy(Function(x) x.GetCustomAttribute(Of PriorityAttribute)(True).Priority).ToImmutableList
             If properties.Count = 0 Then Throw New EmptyObjectException
             Using cmd As New SqlCommand($"INSERT INTO {obj.Name} ({properties.Select(Function(x) x.Name).Aggregate(Function(x, y) x & ", " & y)})" &
                                         $"VALUES ({properties.Select(Function(x) $"{GetSqlValue(x, obj)}").Aggregate(Function(x, y) x & ", " & y)})", con)
                 Await cmd.ExecuteNonQueryAsync
-                Return obj
+                Return Await LoadObject(obj)
             End Using
         End Using
+    End Function
+
+    Public Async Function NewObject(Of T As {New, SQLObject})(id As ULong) As Task(Of T)
+        Dim obj As New T With {.Id = id}
+        Return Await NewObject(obj)
     End Function
     ''' <summary>
     ''' Loads the Object, creates a new one if it doesn't exist.
@@ -167,64 +179,82 @@ Public NotInheritable Class SQLExpress
     ''' <typeparam name="T"></typeparam>
     ''' <param name="toLoad"></param>
     ''' <returns></returns>
-    Public Async Function LoadObject(Of T As {New, SQLObject})(toLoad As T) As Task(Of T)
+    Public Async Function LoadObject(Of T As {SQLObject})(toLoad As T) As Task(Of T)
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync
-            Dim obj As New T
             Dim result As Integer
             Using cmd As New SqlCommand($"SELECT COUNT(Id) FROM {toLoad.Name} WHERE Id = {toLoad.Id}", con)
                 result = DirectCast(Await cmd.ExecuteScalarAsync, Integer)
             End Using
             If result = 0 Then Return Await NewObject(toLoad)
-            Dim propertyNames = obj.GetType.GetProperties.
+            Dim propertyNames = toLoad.GetType.GetProperties.
                 Where(Function(x) x.GetCustomAttribute(Of PriorityAttribute)(True) IsNot Nothing).
                 OrderBy(Function(x) x.GetCustomAttribute(Of PriorityAttribute)(True).Priority).
-                Select(Function(x) x.Name)
+                Select(Function(x) x.Name).ToImmutableList
             If propertyNames.Count = 0 Then Throw New EmptyObjectException
-            Using cmd As New SqlCommand($"SELECT* FROM {obj.Name} WHERE Id = {obj.Id}", con)
+            Using cmd As New SqlCommand($"SELECT* FROM {toLoad.Name} WHERE Id = {toLoad.Id}", con)
                 Using r = Await cmd.ExecuteReaderAsync
                     While Await r.ReadAsync
                         For x = 0 To r.FieldCount - 1
-                            obj.GetType.GetProperty(propertyNames(x)).SetValue(obj, r.Item(x))
+                            toLoad.GetType.GetProperty(propertyNames(x)).SetValue(toLoad, UnsignedFix(toLoad, propertyNames(x), r.Item(propertyNames(x))))
                         Next
                     End While
-                    Return obj
+                    Return toLoad
                 End Using
             End Using
         End Using
     End Function
     ''' <summary>
-    ''' Sabes the Object, createsa new one if it doesn't exist.
+    ''' Loads the Object, creates a new one if it doesn't exists
+    ''' </summary>
+    ''' <typeparam name="T"></typeparam>
+    ''' <param name="id"></param>
+    ''' <returns></returns>
+    Public Async Function LoadObject(Of T As {New, SQLObject})(id As ULong) As Task(Of T)
+        Dim obj As New T With {.Id = id}
+        Return Await LoadObject(obj)
+    End Function
+    ''' <summary>
+    ''' Saves the Object, creates a new one if it doesn't exist.
     ''' </summary>
     ''' <typeparam name="T"></typeparam>
     ''' <param name="toSave"></param>
     ''' <returns></returns>
-    Public Async Function SaveObject(Of T As {New, SQLObject})(toSave As T) As Task(Of T)
+    Public Async Function SaveObject(Of T As {SQLObject})(toSave As T) As Task
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync
             Dim result As Integer
-            Dim obj As New T
             Using cmd As New SqlCommand($"SELECT COUNT(Id) FROM {toSave.Name} WHERE Id = {toSave.Id}", con)
                 result = DirectCast(Await cmd.ExecuteScalarAsync, Integer)
             End Using
-            If result = 0 Then Return Await NewObject(toSave)
-            Dim properties = obj.GetType.GetProperties.
-                Where(Function(x) x.GetCustomAttribute(Of PriorityAttribute)(True) IsNot Nothing).
-                OrderBy(Function(x) x.GetCustomAttribute(Of PriorityAttribute)(True).Priority)
+            If result = 0 Then Await NewObject(toSave)
+            Dim properties = toSave.GetType.GetProperties.
+                Where(Function(x) x.GetCustomAttribute(Of PriorityAttribute)(True) IsNot Nothing AndAlso x.GetCustomAttribute(Of PrimaryKeyAttribute)(True) Is Nothing).
+                OrderBy(Function(x) x.GetCustomAttribute(Of PriorityAttribute)(True).Priority).ToImmutableList
             If properties.Count = 0 Then Throw New EmptyObjectException
             Dim sb As New StringBuilder
             With sb
-                .AppendLine($"UPDATE {obj.Name}")
+                .AppendLine($"UPDATE {toSave.Name}")
+                .Append("SET ")
                 For Each [Property] In properties
-                    .AppendLine($"SET {[Property].Name} = {[Property].GetValue(obj)}")
+                    .AppendLine($"{[Property].Name} = {GetSqlValue([Property], toSave)}{If([Property] IsNot properties.Last, ",", "")}")
                 Next
-                .AppendLine($"WHERE Id = {obj.Id}")
+                .AppendLine($"WHERE Id = {toSave.Id}")
             End With
             Using cmd As New SqlCommand($"{sb}", con)
                 Await cmd.ExecuteNonQueryAsync
             End Using
-            Return obj
         End Using
     End Function
-
+    ''' <summary>
+    ''' Saves the Object, creates a new one if it doesn't exist.
+    ''' </summary>
+    ''' <typeparam name="T"></typeparam>
+    ''' <param name="id"></param>
+    ''' <returns></returns>
+    Public Async Function SaveObject(Of T As {New, SQLObject})(id As ULong) As Task
+        Dim obj As New T With {.Id = id}
+        Await SaveObject(obj)
+    End Function
+#Region "Private Methods"
     Private Function ParseType(typeName As String) As String
         With typeName
             Select Case True
@@ -238,6 +268,7 @@ Public NotInheritable Class SQLExpress
                 Case .Contains("DateTime") : Return "DATE"
                 Case .Contains("TimeSpan") : Return "TIME"
                 Case .Contains("DateTimeOffset") : Return "DATETIMEOFFSET"
+                Case .Contains("Boolean") : Return "BIT"
                 Case .Contains("String") : Return $"VARCHAR({_stringLimit})"
             End Select
         End With
@@ -251,12 +282,21 @@ Public NotInheritable Class SQLExpress
         Select Case typeName
             Case "BIGINT", "SMALLINT", "INT", "TINYINT", "DECIMAL", "FLOAT", "REAL" : Return $"{value}"
             Case "DATE", "TIME", "DATETIMEOFFSET", $"VARCHAR({_stringLimit})" : Return $"'{value}'"
+            Case "BIT" : Return $"{If(DirectCast(value, Boolean) = True, 1, 0)}"
             Case Else : Throw New UnsupportedTypeException
         End Select
         Return ""
     End Function
 
-    Public Sub Dispose() Implements IDisposable.Dispose
-        Finalize()
-    End Sub
+    Private Function UnsignedFix(Of T As {SQLObject})(obj As T, name As String, value As Object) As Object
+        Dim propertyType = obj.GetType.GetProperty(name).PropertyType.Name
+        Select Case True
+            Case TypeOf value Is Int64 : Return If(propertyType = "UInt64", Convert.ToUInt64(value), value)
+            Case TypeOf value Is Int32 : Return If(propertyType = "UInt32", Convert.ToUInt32(value), value)
+            Case TypeOf value Is Int16 : Return If(propertyType = "UInt16", Convert.ToUInt16(value), value)
+            Case TypeOf value Is SByte : Return If(propertyType = "Byte", Convert.ToByte(value), value)
+        End Select
+        Return value
+    End Function
+#End Region
 End Class
