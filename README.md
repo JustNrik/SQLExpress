@@ -76,4 +76,45 @@ End Function
 ```
 
 And you're done. You can Save, Load or Create new objects as you please. They will be automaticaly stored in the database.
+
 **Note**: All methods are Asynchronous. They are: CreateNewObjectAsync, LoadObjectAsync And SaveObjectAsync.
+
+# How do I make an Object?
+
+You must create a `Class` that inherits from `SQLObject` and add `Priority` Attribute on the properties you want to store. 
+
+```cs
+public class Person : SQLObject
+{
+    public overrides string Name { get; } => "persons";
+    [Priority(1)]
+    public string Address { get; set; }
+    [Priority(2)]
+    public string TelephoneNumber { get; set; }
+    
+    void Person() { }
+    void Person(ulong id) : base(id) { }
+}
+```
+```vb
+Public Class Person
+    Inherits SQLObject
+
+    Private Overrides ReadOnly Property Name As String
+    Get
+        Return "persons"
+    End Get
+    <Priority(1)>
+    Public Property Address As String
+    <Priority(2)>
+    Public Property TelephoneNumber As String
+
+    Sub New()
+    End Sub
+
+    Sub New(id As ULong)
+        MyBase.New(id)
+    End Sub
+End Class
+```
+You can also user `NotNull` Attribute to prevent null data to be stored. Keep in mind that it will throw if you attempt to Save null data.
