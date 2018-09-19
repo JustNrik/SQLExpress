@@ -77,19 +77,19 @@ End Function
 
 And you're done. You can Save, Load or Create new objects as you please. They will be automaticaly stored in the database.
 
-**Note**: All methods are Asynchronous. They are: CreateNewObjectAsync, LoadObjectAsync And SaveObjectAsync.
+**Note**: All methods are Asynchronous. They are: CreateNewObjectAsync, LoadObjectAsync, SaveObjectAsync and RemoveObjectAsync.
 
 # How do I make an Object?
 
-You must create a `Class` that inherits from `SQLObject` and add `Priority` Attribute on the properties you want to store. 
+You must create a `Class` that inherits from `SQLObject` and add `Store` Attribute on the properties you want to store.  Optionally, you can provide an index to Store, this will affect the order they are organized. It doesn't really matter, just for organization.
 
 ```cs
 public class Person : SQLObject
 {
     public override string Name { get; } => "persons";
-    [Priority(1)]
+    [Store(1)]
     public string Address { get; set; }
-    [Priority(2)]
+    [Store(2)]
     public string TelephoneNumber { get; set; }
     
     void Person() { }
@@ -105,9 +105,9 @@ Public Class Person
             Return "persons"
         End Get
     End Property
-    <Priority(1)>
+    <Store(1)>
     Public Property Address As String
-    <Priority(2)>
+    <Store(2)>
     Public Property TelephoneNumber As String
 
     Sub New()
