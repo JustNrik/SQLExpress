@@ -86,7 +86,7 @@ You must create a `Class` that inherits from `SQLObject` and add `Priority` Attr
 ```cs
 public class Person : SQLObject
 {
-    public overrides string Name { get; } => "persons";
+    public override string Name { get; } => "persons";
     [Priority(1)]
     public string Address { get; set; }
     [Priority(2)]
