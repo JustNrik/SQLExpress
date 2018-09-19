@@ -85,6 +85,7 @@
     <Compile Include="Attributes\PrimaryKeyAttribute.vb" />
     <Compile Include="Attributes\PriorityAttribute.vb" />
     <Compile Include="Attributes\NotNullAttribute.vb" />
+    <Compile Include="Attributes\StringLengthAttribute.vb" />
     <Compile Include="Exceptions\EmptyObjectException.vb" />
     <Compile Include="Exceptions\UnsupportedTypeException.vb" />
     <Compile Include="SQLObject.vb" />
