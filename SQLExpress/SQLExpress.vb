@@ -168,7 +168,12 @@ Public NotInheritable Class SQLExpressClient
             End Using
         End Using
     End Function
-
+    ''' <summary>
+    ''' Adds a new Object to the database. Throws when fail.
+    ''' </summary>
+    ''' <typeparam name="T"></typeparam>
+    ''' <param name="id"></param>
+    ''' <returns></returns>
     Public Async Function NewObject(Of T As {New, SQLObject})(id As ULong) As Task(Of T)
         Dim obj As New T With {.Id = id}
         Return Await NewObject(obj)
