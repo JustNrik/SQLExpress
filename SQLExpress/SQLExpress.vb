@@ -281,7 +281,6 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="id"></param>
     ''' <returns></returns>
     Public Async Function RemoveObjectAsync(Of T As {New, SQLObject})(id As ULong) As Task
-        Cache.TryRemove(id, Nothing)
         Dim toRemove As New T With {.Id = id}
         Await RemoveObjectAsync(toRemove)
     End Function
