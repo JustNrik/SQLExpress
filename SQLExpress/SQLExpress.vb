@@ -7,6 +7,7 @@ Imports System.Data.SqlClient
 Imports System.Reflection
 Imports System.Text
 Imports System.Xml
+Imports System.Runtime.InteropServices
 #End Region
 Public NotInheritable Class SQLExpressClient
 #Region "Fields"
@@ -26,6 +27,7 @@ Public NotInheritable Class SQLExpressClient
     Public WriteOnly Property Database As String
         Set
             _database = Value
+            _connectionString = $"Server={_sqlServer};Database={_database};User Id={_username};Password={_password};"
         End Set
     End Property
     ''' <summary>
@@ -34,6 +36,7 @@ Public NotInheritable Class SQLExpressClient
     Public WriteOnly Property Server As String
         Set
             _sqlServer = Value
+            _connectionString = $"Server={_sqlServer};Database={_database};User Id={_username};Password={_password};"
         End Set
     End Property
     ''' <summary>
@@ -42,6 +45,7 @@ Public NotInheritable Class SQLExpressClient
     Public WriteOnly Property Username As String
         Set
             _username = Value
+            _connectionString = $"Server={_sqlServer};Database={_database};User Id={_username};Password={_password};"
         End Set
     End Property
     ''' <summary>
@@ -50,6 +54,15 @@ Public NotInheritable Class SQLExpressClient
     Public WriteOnly Property Password As String
         Set
             _password = Value
+            _connectionString = $"Server={_sqlServer};Database={_database};User Id={_username};Password={_password};"
+        End Set
+    End Property
+    ''' <summary>
+    ''' Sets the ConnectionString that will be used to connect the database.
+    ''' </summary>
+    Public WriteOnly Property ConnectionString As String
+        Set
+            _connectionString = Value
         End Set
     End Property
 #End Region
@@ -108,14 +121,15 @@ Public NotInheritable Class SQLExpressClient
         _password = $"{jConfig("password")}"
         _connectionString = $"Server={_sqlServer};Database={_database};User Id={_username};Password={_password};"
     End Sub
+#End Region
+#Region "InitialiseObjects"
     ''' <summary>
     ''' This is the Object initialisation, it will automatically create the objects that don't exists.
     ''' </summary>
     ''' <typeparam name="T"></typeparam>
     ''' <param name="objs"></param>
     ''' <returns></returns>
-#End Region
-    Public Async Function InitialiseObjects(Of T As {SQLObject})(ParamArray objs As T()) As Task
+    Public Async Function InitialiseObjectsAsync(Of T As {SQLObject})(ParamArray objs As T()) As Task
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync()
             For Each obj In objs
                 Dim result As Integer
@@ -144,20 +158,71 @@ Public NotInheritable Class SQLExpressClient
                         Using newCmd As New SqlCommand($"{sb}", con)
                             Await newCmd.ExecuteNonQueryAsync
                         End Using
-                    Case 1
-                        Dim newObj = Await LoadObjectAsync(obj)
-                        Cache.TryAdd(newObj.Id, newObj)
+                    Case 1 : Continue For
                 End Select
             Next
         End Using
     End Function
+    ''' <summary>
+    ''' This is the Object initialisation, it will automatically create the objects that don't exists.
+    ''' </summary>
+    ''' <typeparam name="T"></typeparam>
+    ''' <param name="objs"></param>
+    Public Sub InitialiseObjects(Of T As {SQLObject})(ParamArray objs As T())
+        InitialiseObjectsAsync(objs).Wait()
+    End Sub
+#End Region
+#Region "LoadObjectCache"
+    ''' <summary>
+    ''' Loads the cache with all objects stored in the database of the type provided.
+    ''' </summary>
+    ''' <typeparam name="T"></typeparam>
+    ''' <param name="objs"></param>
+    ''' <returns></returns>
+    Public Async Function LoadObjectCacheAsync(Of T As {New, SQLObject})(ParamArray objs As T()) As Task
+        Dim result As Integer
+        Using con As New SqlConnection(_connectionString) : Await con.OpenAsync
+            For Each obj In objs
+                Using cmd As New SqlCommand($"SELECT COUNT(Id) FROM {obj.Name}", con)
+                    result = DirectCast(Await cmd.ExecuteScalarAsync, Integer)
+                End Using
+                Select Case result
+                    Case 0 : Return
+                    Case Else
+                        Dim ids As New List(Of ULong)
+                        Using cmd As New SqlCommand($"SELECT Id FROM {obj.Name}", con)
+                            Using r = Await cmd.ExecuteReaderAsync
+                                While Await r.ReadAsync
+                                    ids.Add(CULng(r.GetInt64(0)))
+                                End While
+                            End Using
+                        End Using
+                        For Each id In ids.ToImmutableList
+                            Dim newObj As New T With {.Id = id}
+                            Await LoadObjectAsync(newObj)
+                            Cache.TryAdd(newObj.Id, newObj)
+                        Next
+                End Select
+            Next
+        End Using
+    End Function
+    ''' <summary>
+    ''' Loads the cache with all objects stored in the database of the type provided.
+    ''' </summary>
+    ''' <typeparam name="T"></typeparam>
+    ''' <param name="objs"></param>
+    Public Sub LoadObjectCache(Of T As {New, SQLObject})(ParamArray objs As T())
+        LoadObjectCacheAsync(objs).Wait()
+    End Sub
+#End Region
+#Region "CreateNewObject"
     ''' <summary>
     ''' Adds a new Object to the database. Throws when fail.
     ''' </summary>
     ''' <typeparam name="T"></typeparam>
     ''' <param name="obj"></param>
     ''' <returns></returns>
-    Public Async Function CreateNewObjectAsync(Of T As {SQLObject})(obj As T) As Task(Of T)
+    Private Async Function CreateNewObjectAsync(Of T As {SQLObject})(obj As T) As Task(Of T)
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync()
             Dim properties = obj.GetType.GetProperties.
                 Where(Function(x) x.GetCustomAttribute(Of StoreAttribute)(True) IsNot Nothing).
@@ -178,10 +243,40 @@ Public NotInheritable Class SQLExpressClient
     ''' <typeparam name="T"></typeparam>
     ''' <param name="id"></param>
     ''' <returns></returns>
-    Public Async Function CreateNewObjectAsync(Of T As {New, SQLObject})(id As ULong) As Task(Of T)
+    Private Async Function CreateNewObjectAsync(Of T As {New, SQLObject})(id As ULong) As Task(Of T)
         Dim obj As New T With {.Id = id}
         Return Await CreateNewObjectAsync(obj)
     End Function
+    ''' <summary>
+    ''' Adds a new Object to the database. Throws when fail.
+    ''' </summary>
+    ''' <typeparam name="T"></typeparam>
+    ''' <param name="obj"></param>
+    Public Sub CreateNewObject(Of T As {New, SQLObject})(<Out> ByRef obj As T)
+        obj = CreateNewObjectAsync(obj).Result
+    End Sub
+    ''' <summary>
+    ''' Adds a new Object to the database. Throws when fail.
+    ''' </summary>
+    ''' <typeparam name="T"></typeparam>
+    ''' <param name="id"></param>
+    ''' <returns></returns>
+    Public Function CreateNewObject(Of T As {New, SQLObject})(id As ULong) As T
+        Dim obj As New T With {.Id = id}
+        Return CreateNewObjectAsync(obj).Result
+    End Function
+    ''' <summary>
+    ''' Adds a new Object to the database. Throws when fail.
+    ''' </summary>
+    ''' <typeparam name="T"></typeparam>
+    ''' <param name="id"></param>
+    ''' <param name="obj"></param>
+    Public Sub CreateNewObject(Of T As {New, SQLObject})(id As ULong, <Out> ByRef obj As T)
+        Dim newObj As New T With {.Id = id}
+        obj = CreateNewObjectAsync(newObj).Result
+    End Sub
+#End Region
+#Region "LoadObject"
     ''' <summary>
     ''' Loads the Object, creates a new one if it doesn't exist.
     ''' </summary>
@@ -189,7 +284,6 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="toLoad"></param>
     ''' <returns></returns>
     Public Async Function LoadObjectAsync(Of T As {SQLObject})(toLoad As T) As Task(Of T)
-        Dim obj As SQLObject = Nothing
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync
             If Not Await CheckExistenceAsync(toLoad, con) Then Return Await CreateNewObjectAsync(toLoad)
             Dim propertyNames = toLoad.GetType.GetProperties.
@@ -219,6 +313,32 @@ Public NotInheritable Class SQLExpressClient
         Dim toLoad As New T With {.Id = id}
         Return Await LoadObjectAsync(toLoad)
     End Function
+    ''' <summary>
+    ''' Loads the Object, creates a new one if it doesn't exists
+    ''' </summary>
+    ''' <typeparam name="T"></typeparam>
+    ''' <param name="obj"></param>
+    ''' <returns></returns>
+    Public Function LoadObject(Of T As {SQLObject})(obj As T) As T
+        Return LoadObjectAsync(obj).Result
+    End Function
+    ''' <summary>
+    ''' Loads the Object, creates a new one if it doesn't exists
+    ''' </summary>
+    ''' <typeparam name="T"></typeparam>
+    ''' <param name="id"></param>
+    ''' <returns></returns>
+    Public Function LoadObject(Of T As {New, SQLObject})(id As ULong) As T
+        Dim newObj As New T With {.Id = id}
+        Return LoadObject(newObj)
+    End Function
+
+    Public Sub LoadObject(Of T As {New, SQLObject})(id As ULong, <Out> ByRef obj As T)
+        Dim newObj As New T With {.Id = id}
+        obj = LoadObject(newObj)
+    End Sub
+#End Region
+#Region "UpdateObject"
     ''' <summary>
     ''' Updates the Object, creates a new one if it doesn't exist.
     ''' </summary>
@@ -260,6 +380,35 @@ Public NotInheritable Class SQLExpressClient
         Return Await UpdateObjectAsync(toUpdate)
     End Function
     ''' <summary>
+    ''' Updates the Object, creates a new one if it doesn't exist.
+    ''' </summary>
+    ''' <typeparam name="T"></typeparam>
+    ''' <param name="obj"></param>
+    Public Sub UpdateObject(Of T As {SQLObject})(<Out> ByRef obj As T)
+        obj = UpdateObjectAsync(obj).Result
+    End Sub
+    ''' <summary>
+    ''' Updates the Object, creates a new one if it doesn't exist.
+    ''' </summary>
+    ''' <typeparam name="T"></typeparam>
+    ''' <param name="id"></param>
+    Public Sub UpdateObject(Of T As {New, SQLObject})(id As ULong, <Out> ByRef obj As T)
+        Dim newObj As New T With {.Id = id}
+        obj = UpdateObjectAsync(newObj).Result
+    End Sub
+    ''' <summary>
+    ''' Updates the Object, creates a new one if it doesn't exist.
+    ''' </summary>
+    ''' <typeparam name="T"></typeparam>
+    ''' <param name="id"></param>
+    ''' <returns></returns>
+    Public Function UpdateObject(Of T As {New, SQLObject})(id As ULong) As T
+        Dim newObj As New T With {.Id = id}
+        Return UpdateObjectAsync(newObj).Result
+    End Function
+#End Region
+#Region "RemoveObject"
+    ''' <summary>
     ''' Removes the Object if exists
     ''' </summary>
     ''' <typeparam name="T"></typeparam>
@@ -271,7 +420,7 @@ Public NotInheritable Class SQLExpressClient
             Using cmd As New SqlCommand($"DELETE FROM {toRemove.Name} WHERE Id = {toRemove.Id}")
                 Await cmd.ExecuteNonQueryAsync
             End Using
-            Cache.TryRemove(toRemove.Id, Nothing)
+            If Cache.ContainsKey(toRemove.Id) Then Cache.TryRemove(toRemove.Id, Nothing)
         End Using
     End Function
     ''' <summary>
@@ -284,6 +433,31 @@ Public NotInheritable Class SQLExpressClient
         Dim toRemove As New T With {.Id = id}
         Await RemoveObjectAsync(toRemove)
     End Function
+    ''' <summary>
+    ''' Removes the Object if exists
+    ''' </summary>
+    ''' <typeparam name="T"></typeparam>
+    ''' <param name="toRemove"></param>
+    Public Sub RemoveObject(Of T As {SQLObject})(toRemove As T)
+        Using con As New SqlConnection(_connectionString) : con.Open()
+            If Not CheckExistence(toRemove, con) Then Return
+            Using cmd As New SqlCommand($"DELETE FROM {toRemove.Name} WHERE Id = {toRemove.Id}")
+                cmd.ExecuteNonQuery()
+            End Using
+            If Cache.ContainsKey(toRemove.Id) Then Cache.TryRemove(toRemove.Id, Nothing)
+        End Using
+    End Sub
+    ''' <summary>
+    ''' Removes the Object if exists
+    ''' </summary>
+    ''' <typeparam name="T"></typeparam>
+    ''' <param name="id"></param>
+    Public Sub RemoveObject(Of T As {New, SQLObject})(id As ULong)
+        Dim toRemove As New T With {.Id = id}
+        RemoveObject(toRemove)
+    End Sub
+#End Region
+#Region "CheckExistence"
     ''' <summary>
     ''' Checks the existence of an Object, optionally you can provide an Open connection.
     ''' </summary>
@@ -304,7 +478,41 @@ Public NotInheritable Class SQLExpressClient
             End Using
         End If
     End Function
+    ''' <summary>
+    ''' Checks the existence of an Object, optionally you can provide an Open connection.
+    ''' </summary>
+    ''' <typeparam name="T"></typeparam>
+    ''' <param name="obj"></param>
+    ''' <returns></returns>
+    Public Function CheckExistence(Of T As {SQLObject})(obj As T, Optional con As SqlConnection = Nothing) As Boolean
+        Return CheckExistenceAsync(obj, con).Result
+    End Function
+    ''' <summary>
+    ''' Checks the existence of an Object, optionally you can provide an Open connection.
+    ''' </summary>
+    ''' <typeparam name="T"></typeparam>
+    ''' <param name="id"></param>
+    ''' <param name="con"></param>
+    ''' <returns></returns>
+    Public Async Function CheckExistenceAsync(Of T As {New, SQLObject})(id As ULong, Optional con As SqlConnection = Nothing) As Task(Of Boolean)
+        Dim obj As New T With {.Id = id}
+        Return Await CheckExistenceAsync(obj, con)
+    End Function
+    ''' <summary>
+    ''' Checks the existence of an Object, optionally you can provide an Open connection.
+    ''' </summary>
+    ''' <typeparam name="T"></typeparam>
+    ''' <param name="id"></param>
+    ''' <returns></returns>
+    Public Function CheckExistence(Of T As {New, SQLObject})(id As ULong, Optional con As SqlConnection = Nothing) As Boolean
+        Dim obj As New T With {.Id = id}
+        Return CheckExistenceAsync(obj, con).Result
+    End Function
+#End Region
 #Region "Private Methods"
+    Private Function GetNewObject(Of T As {New, SQLObject})(obj As T) As T
+        Return New T With {.Id = obj.Id}
+    End Function
     Private Function ParseType(typeName As String, Optional stringLimit As Byte? = Nothing) As String
         With typeName
             Select Case True
