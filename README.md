@@ -63,7 +63,7 @@ async Task Initialise()
     // This is another way
     await dbo.InitialiseObjectsAsync<GuildObject>(new Person(), new Employee(), new Derp());
     // You can also load the Cache along with the initialisation
-    await dbo.LoadObjectCacheAsync(New Person());
+    await dbo.LoadObjectCacheAsync(new Person());
     await dbo.LoadObjectCacheAsync(new Employee());
     await dbo.LoadObjectCacheAsync(new Derp());
 }
