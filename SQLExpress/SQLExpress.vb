@@ -222,7 +222,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <typeparam name="T"></typeparam>
     ''' <param name="obj"></param>
     ''' <returns></returns>
-    Private Async Function CreateNewObjectAsync(Of T As {SQLObject})(obj As T) As Task(Of T)
+    Public Async Function CreateNewObjectAsync(Of T As {SQLObject})(obj As T) As Task(Of T)
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync()
             Dim properties = obj.GetType.GetProperties.
                 Where(Function(x) x.GetCustomAttribute(Of StoreAttribute)(True) IsNot Nothing).
@@ -243,7 +243,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <typeparam name="T"></typeparam>
     ''' <param name="id"></param>
     ''' <returns></returns>
-    Private Async Function CreateNewObjectAsync(Of T As {New, SQLObject})(id As ULong) As Task(Of T)
+    Public Async Function CreateNewObjectAsync(Of T As {New, SQLObject})(id As ULong) As Task(Of T)
         Dim obj As New T With {.Id = id}
         Return Await CreateNewObjectAsync(obj)
     End Function
