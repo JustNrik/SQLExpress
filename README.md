@@ -59,9 +59,13 @@ async Task Initialise()
     var dbo = _services.GetService<SQLExpressClient>();
     // This is a way
     var objs = new SQLObject[] { new Person(), new Employee(), new Derp() };
-    await dbo.SetupObjects(objs);
+    await dbo.InitialiseObjectsAsync(objs);
     // This is another way
-    await dbo.SetupObjects<GuildObject>(new Person(), new Employee(), new Derp());
+    await dbo.InitialiseObjectsAsync<GuildObject>(new Person(), new Employee(), new Derp());
+    // You can also load the Cache along with the initialisation
+    await dbo.LoadObjectCacheAsync(New Person());
+    await dbo.LoadObjectCacheAsync(new Employee());
+    await dbo.LoadObjectCacheAsync(new Derp());
 }
 ```
 ```vb
@@ -69,15 +73,17 @@ Async Function Initialise() As Task
     Dim dbo = _services.GetService(Of SQLExpressClient)
     ' This is a way
     Dim objs = New SQLObject() {New Person, New Employee, New Derp}
-    Await dbo.SetupObjects(objs)
+    Await dbo.InitialiseObjectsAsync(objs)
     ' This is another way
-    Await dbo.SetupObjects(Of GuildObject)(New Person, New Employee, New Derp)
+    Await dbo.InitialiseObjectsAsync(Of GuildObject)(New Person, New Employee, New Derp)
+    ' You can also load the Cache along with the initialisation
+    Await dbo.LoadObjectCacheAsync(New Person)
+    Await dbo.LoadObjectCacheAsync(New Employee)
+    Await dbo.LoadObjectCacheAsync(New Derp)
 End Function
 ```
 
 And you're done. You can Save, Load or Create new objects as you please. They will be automaticaly stored in the database.
-
-**Note**: All methods are Asynchronous. They are: CreateNewObjectAsync, LoadObjectAsync, SaveObjectAsync and RemoveObjectAsync.
 
 # How do I make an Object?
 
