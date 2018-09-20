@@ -92,7 +92,7 @@ You must create a `Class` that inherits from `SQLObject` and add `Store` Attribu
 ```cs
 public class Person : SQLObject
 {
-    public override string Name { get; } => "persons";
+    public override string Name => "persons";
     [Store(1)]
     public string Address { get; set; }
     [Store(2)]
