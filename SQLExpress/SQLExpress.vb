@@ -136,7 +136,7 @@ Public NotInheritable Class SQLExpressClient
                 Using cmd As New SqlCommand($"IF OBJECT_ID('{obj.Name}') IS NULL" & vbCrLf &
                                              "    SELECT 0" & vbCrLf &
                                              "ELSE" & vbCrLf &
-                                             "    SELECT 1", con)
+                                             "    SELECT 1;", con)
                     result = DirectCast(Await cmd.ExecuteScalarAsync, Integer)
                 End Using
                 Select Case result
@@ -152,7 +152,7 @@ Public NotInheritable Class SQLExpressClient
                                 .Append($"{[Property].Name} {ParseType([Property].PropertyType.Name, [Property].GetCustomAttribute(Of StringLengthAttribute)(True)?.Length)} ")
                                 .Append($"{If([Property].GetCustomAttribute(Of NotNullAttribute)(True) IsNot Nothing, "NOT NULL", "")} ")
                                 .Append($"{If([Property].GetCustomAttribute(Of PrimaryKeyAttribute)(True) IsNot Nothing, "PRIMARY KEY", "")}")
-                                If [Property] Is properties.Last() Then .AppendLine(")") Else .AppendLine(",")
+                                If [Property] Is properties.Last() Then .AppendLine(");") Else .AppendLine(",")
                             Next
                         End With
                         Using newCmd As New SqlCommand($"{sb}", con)
@@ -183,14 +183,14 @@ Public NotInheritable Class SQLExpressClient
         Dim result As Integer
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync
             For Each obj In objs
-                Using cmd As New SqlCommand($"SELECT COUNT(Id) FROM {obj.Name}", con)
+                Using cmd As New SqlCommand($"SELECT COUNT(Id) FROM {obj.Name};", con)
                     result = DirectCast(Await cmd.ExecuteScalarAsync, Integer)
                 End Using
                 Select Case result
                     Case 0 : Return
                     Case Else
                         Dim ids As New List(Of ULong)
-                        Using cmd As New SqlCommand($"SELECT Id FROM {obj.Name}", con)
+                        Using cmd As New SqlCommand($"SELECT Id FROM {obj.Name};", con)
                             Using r = Await cmd.ExecuteReaderAsync
                                 While Await r.ReadAsync
                                     ids.Add(CULng(r.GetInt64(0)))
@@ -229,7 +229,7 @@ Public NotInheritable Class SQLExpressClient
                 OrderByDescending(Function(x) x.GetCustomAttribute(Of StoreAttribute)(True).Priority).ToImmutableList
             If properties.Count = 0 Then Throw New EmptyObjectException
             Using cmd As New SqlCommand($"INSERT INTO {obj.Name} ({properties.Select(Function(x) x.Name).Aggregate(Function(x, y) x & ", " & y)})" &
-                                        $"VALUES ({properties.Select(Function(x) $"{GetSqlValue(x, obj)}").Aggregate(Function(x, y) x & ", " & y)})", con)
+                                        $"VALUES ({properties.Select(Function(x) $"{GetSqlValue(x, obj)}").Aggregate(Function(x, y) x & ", " & y)});", con)
                 Await cmd.ExecuteNonQueryAsync
             End Using
             Dim newObj = Await LoadObjectAsync(obj)
@@ -291,7 +291,7 @@ Public NotInheritable Class SQLExpressClient
                     OrderByDescending(Function(x) x.GetCustomAttribute(Of StoreAttribute)(True).Priority).
                     Select(Function(x) x.Name).ToImmutableList
             If propertyNames.Count = 0 Then Throw New EmptyObjectException
-            Using cmd As New SqlCommand($"SELECT* FROM {toLoad.Name} WHERE Id = {toLoad.Id}", con)
+            Using cmd As New SqlCommand($"SELECT* FROM {toLoad.Name} WHERE Id = {toLoad.Id};", con)
                 Using r = Await cmd.ExecuteReaderAsync
                     While Await r.ReadAsync
                         For x = 0 To r.FieldCount - 1
@@ -359,7 +359,7 @@ Public NotInheritable Class SQLExpressClient
                 For Each [Property] In properties
                     .AppendLine($"{[Property].Name} = {GetSqlValue([Property], toUpdate)}{If([Property] IsNot properties.Last, ",", "")}")
                 Next
-                .AppendLine($"WHERE Id = {toUpdate.Id}")
+                .AppendLine($"WHERE Id = {toUpdate.Id};")
             End With
             Using cmd As New SqlCommand($"{sb}", con)
                 Await cmd.ExecuteNonQueryAsync
@@ -417,7 +417,7 @@ Public NotInheritable Class SQLExpressClient
     Public Async Function RemoveObjectAsync(Of T As {SQLObject})(toRemove As T) As Task
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync
             If Not Await CheckExistenceAsync(toRemove, con) Then Return
-            Using cmd As New SqlCommand($"DELETE FROM {toRemove.Name} WHERE Id = {toRemove.Id}")
+            Using cmd As New SqlCommand($"DELETE FROM {toRemove.Name} WHERE Id = {toRemove.Id};")
                 Await cmd.ExecuteNonQueryAsync
             End Using
             If Cache.ContainsKey(toRemove.Id) Then Cache.TryRemove(toRemove.Id, Nothing)
@@ -467,12 +467,12 @@ Public NotInheritable Class SQLExpressClient
     ''' <returns></returns>
     Public Async Function CheckExistenceAsync(Of T As {SQLObject})(obj As T, Optional con As SqlConnection = Nothing) As Task(Of Boolean)
         If con Is Nothing Then
-            Using cmd As New SqlCommand($"SELECT COUNT(Id) FROM {obj.Name} WHERE Id = {obj.Id}", con)
+            Using cmd As New SqlCommand($"SELECT COUNT(Id) FROM {obj.Name} WHERE Id = {obj.Id};", con)
                 Return DirectCast(Await cmd.ExecuteScalarAsync, Integer) = 1
             End Using
         Else
             Using conn As New SqlConnection(_connectionString) : Await conn.OpenAsync
-                Using cmd As New SqlCommand($"SELECT COUNT(Id) FROM {obj.Name} WHERE Id = {obj.Id}", con)
+                Using cmd As New SqlCommand($"SELECT COUNT(Id) FROM {obj.Name} WHERE Id = {obj.Id};", con)
                     Return DirectCast(Await cmd.ExecuteScalarAsync, Integer) = 1
                 End Using
             End Using
