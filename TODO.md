@@ -11,19 +11,12 @@
 
 Currently, I will only plan to support:
 
-T[]
-
-T[][]
-
-T[][][]
+T[] // All kind of matrixes hopefully, initial support will be probably upto [][][]
 
 List(Of T)
 
-ValueTuple(Of T1, T2)
-
-ValueTuple(Of T1, T2, T3)
+ValueTuple(Of T1, T2, ..., T7) // I will also support TRest As Structure later
 
 Dictionary(Of TKey, TValue)
 
-
-And all variants of IEnumerable(Of T)/(Of T1, T2)/(Of T1, T2, T3)
+And all variants of IEnumerable(Of T)
