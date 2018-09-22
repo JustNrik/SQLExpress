@@ -488,7 +488,7 @@ Public NotInheritable Class SQLExpressClient
                 Using cmd As New SqlCommand(query, conn)
                     Using r = cmd.ExecuteReader
                         While r.Read
-                            Yield If(TypeOf r.Item(0) Is TResult, DirectCast(r.Item(0), TResult), CType(r.Item(0), TResult))
+                            Yield If(IsDBNull(r.Item(0)), Nothing, (If(TypeOf r.Item(0) Is TResult, DirectCast(r.Item(0), TResult), CType(r.Item(0), TResult))))
                         End While
                     End Using
                 End Using
@@ -497,7 +497,7 @@ Public NotInheritable Class SQLExpressClient
             Using cmd As New SqlCommand(query, con)
                 Using r = cmd.ExecuteReader
                     While r.Read
-                        Yield If(TypeOf r.Item(0) Is TResult, DirectCast(r.Item(0), TResult), CType(r.Item(0), TResult))
+                        Yield If(IsDBNull(r.Item(0)), Nothing, (If(TypeOf r.Item(0) Is TResult, DirectCast(r.Item(0), TResult), CType(r.Item(0), TResult))))
                     End While
                 End Using
             End Using
@@ -580,7 +580,7 @@ Public NotInheritable Class SQLExpressClient
 
             If properties.Count = 0 Then Throw New EmptyObjectException
             For Each [Property] In properties
-                .Append($"{[Property].Name} {ParseType([Property].PropertyType.Name, [Property].GetCustomAttribute(Of StringLengthAttribute)(True)?.Length)} ")
+                .Append($"{[Property].Name} {ParseType(GetNullableTypeName([Property].PropertyType), [Property].GetCustomAttribute(Of StringLengthAttribute)(True)?.Length)} ")
                 .Append($"{If([Property].GetCustomAttribute(Of NotNullAttribute)(True) IsNot Nothing, "NOT NULL", "")} ")
                 .Append($"{If([Property].GetCustomAttribute(Of PrimaryKeyAttribute)(True) IsNot Nothing, "PRIMARY KEY", "")}")
 
@@ -614,25 +614,36 @@ Public NotInheritable Class SQLExpressClient
         Return Nothing
     End Function
 
+    Private Function GetNullableTypeName(propType As Type) As String
+        Return If(propType.IsGenericType AndAlso propType.GetGenericTypeDefinition() = GetType(Nullable(Of)),
+                  propType.GetGenericArguments(0).Name,
+                  propType.Name)
+    End Function
+
     Private Function GetSqlValue(Of T As {SQLObject})([Property] As PropertyInfo, ByRef obj As T) As String
         Dim value = [Property].GetValue(obj)
-        Dim typeName = ParseType([Property].PropertyType.Name)
+        Dim typeName = ParseType(GetNullableTypeName([Property].PropertyType))
+
         Select Case typeName
-            Case "BIGINT", "SMALLINT", "INT", "TINYINT", "DECIMAL", "FLOAT", "REAL" : Return $"{value}"
-            Case "DATE", "TIME", "DATETIMEOFFSET", $"VARCHAR({If([Property].GetCustomAttribute(Of StringLengthAttribute)(True)?.Length, _stringLimit)})" : Return $"'{value}'"
-            Case "BIT" : Return $"{If(DirectCast(value, Boolean) = True, 1, 0)}"
+            Case "BIGINT", "SMALLINT", "INT", "TINYINT", "DECIMAL", "FLOAT", "REAL" : Return $"{If(value, "NULL")}"
+            Case "DATE", "TIME", "DATETIMEOFFSET", $"VARCHAR({If([Property].GetCustomAttribute(Of StringLengthAttribute)(True)?.Length, _stringLimit)})" : Return $"'{If(value, "NULL")}'"
+            Case "BIT" : Return $"{If(DirectCast(value, Boolean), 1, 0)}"
             Case Else : Throw New UnsupportedTypeException
         End Select
         Return Nothing
     End Function
 
     Private Function UnsignedFix(Of T As {SQLObject})(obj As T, name As String, value As Object) As Object
-        Dim propertyType = obj.GetType.GetProperty(name).PropertyType.Name
+        If IsDBNull(value) Then Return Nothing
+
+        Dim [property] = obj.GetType.GetProperty(name)
+        Dim propertyType = GetNullableTypeName([property].PropertyType)
+
         Select Case True
-            Case TypeOf value Is Int64 : Return If(propertyType = "UInt64", Convert.ToUInt64(value), value)
-            Case TypeOf value Is Int32 : Return If(propertyType = "UInt32", Convert.ToUInt32(value), value)
-            Case TypeOf value Is Int16 : Return If(propertyType = "UInt16", Convert.ToUInt16(value), value)
-            Case TypeOf value Is SByte : Return If(propertyType = "Byte", Convert.ToByte(value), value)
+            Case TypeOf value Is Int64 : Return If(propertyType = "UInt64", CULng(value), value)
+            Case TypeOf value Is Int32 : Return If(propertyType = "UInt32", CUInt(value), value)
+            Case TypeOf value Is Int16 : Return If(propertyType = "UInt16", CUShort(value), value)
+            Case TypeOf value Is SByte : Return If(propertyType = "Byte", CByte(value), value)
         End Select
         Return value
     End Function
