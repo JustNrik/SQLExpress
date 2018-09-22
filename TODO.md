@@ -7,21 +7,29 @@
 5) Improve cache
 6) Improve performance
 
-#Possible implementation of
-
-1) Lists/Arrays/Etc...
+#Possible implementation of Lists/Arrays/Etc...
 
 Currently, I will only plan to support:
 
 T[]
+
 T[][]
+
 T[][][]
+
 List(Of T)
+
 List(Of T1, T2)
+
 List(Of T1, T2, T3)
+
 ValueTuple(Of T1, T2)
+
 ValueTuple(Of T1, T2, T3)
+
 Dictionary(Of TKey, TValue)
+
 Dictionary(Of TKey, TValue1, TValue2)
+
 
 And all variants of IEnumerable(Of T)/(Of T1, T2)/(Of T1, T2, T3)
