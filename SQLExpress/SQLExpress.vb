@@ -191,6 +191,7 @@ Public NotInheritable Class SQLExpressClient
                               Order By prop.GetCustomAttribute(Of StoreAttribute)(True).Priority Descending).ToImmutableArray
 
             If properties.Count = 0 Then Throw New EmptyObjectException
+            If properties.Any(Function(x) x.GetCustomAttribute(Of NotNullAttribute)(True) IsNot Nothing AndAlso x.GetValue(obj) Is Nothing) Then Throw New NullPropertyException
 
             Await SendQueryAsync($"INSERT INTO {obj.Name} ({properties.Select(Function(x) x.Name).Aggregate(Function(x, y) x & ", " & y)})" &
                                  $"VALUES ({properties.Select(Function(x) $"{GetSqlValue(x, obj)}").Aggregate(Function(x, y) x & ", " & y)});", con)
@@ -437,7 +438,6 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="con"></param>
     Public Sub SendQuery(query As String, Optional con As SqlConnection = Nothing)
         SendQueryAsync(query, con).Wait()
-        Dim x = SendScalarAsync(Of ULong)("")
     End Sub
 #End Region
 #Region "SendScalar"
