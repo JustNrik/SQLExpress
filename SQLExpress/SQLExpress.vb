@@ -267,11 +267,34 @@ Public NotInheritable Class SQLExpressClient
             If Not Await CheckExistenceAsync(toLoad, con) Then Return Await CreateNewObjectAsync(toLoad)
 
             Dim propertyNames = (From prop In toLoad.GetType.GetProperties
-                                 Where prop.GetCustomAttribute(Of StoreAttribute)(True) IsNot Nothing
+                                 Where prop.GetCustomAttribute(Of StoreAttribute)(True) IsNot Nothing AndAlso
+                                     Not GetType(ICollection).IsAssignableFrom(prop.PropertyType)
                                  Order By prop.GetCustomAttribute(Of StoreAttribute)(True).Priority Descending
                                  Select prop.Name).ToImmutableArray
 
             If propertyNames.Count = 0 Then Throw New EmptyObjectException
+
+            Dim collectionNames = (From prop In toLoad.GetType.GetProperties
+                                   Where prop.GetCustomAttribute(Of StoreAttribute)(True) IsNot Nothing AndAlso
+                                      GetType(ICollection).IsAssignableFrom(prop.PropertyType)
+                                   Order By prop.GetCustomAttribute(Of StoreAttribute)(True).Priority Descending
+                                   Select prop.Name).ToImmutableArray
+
+            If collectionNames.Count > 0 AndAlso Await SendScalarAsync(Of Integer)("SELECT COUNT(Id) FROM _enumerablesOfT", con) > 0 Then
+                Dim objs As New List(Of IEnumerable(Of String))
+                For Each name In collectionNames
+                    objs.Add(Await GetEnumerableOf(toLoad.Id, name, con))
+                Next
+
+                If objs.Count > 0 Then
+                    Dim index = 0
+                    For Each name In collectionNames
+                        toLoad.GetType.GetProperty(name).SetValue(toLoad, ParseObject(objs(index), toLoad, name))
+                        index += 1
+                    Next
+                End If
+            End If
+
             Using cmd As New SqlCommand($"SELECT* FROM {toLoad.Name} WHERE Id = {toLoad.Id};", con)
                 Using r = Await cmd.ExecuteReaderAsync
                     While Await r.ReadAsync
@@ -572,19 +595,92 @@ Public NotInheritable Class SQLExpressClient
     End Function
 #End Region
 #Region "Private Methods"
-    Private Async Function BuildInsertAsync(Of T As {SQLObject})(obj As T, properties As IOrderedEnumerable(Of PropertyInfo), con As SqlConnection) As Task(Of String)
+    Private Function ParseObject([Enum] As IEnumerable(Of String), obj As SQLObject, name As String) As Object
+        Dim propType = obj.GetType.GetProperty(name).PropertyType
+        Dim type = GetNullableTypeName(propType.GetGenericArguments(0))
+        Dim propName = propType.Name
+        Dim typeName = If(propName.Contains("`"c), propName.Substring(0, propName.IndexOf("`"c)), propName)
+        typeName = If(propName.Contains("[]"), "Array", typeName)
+        Select Case typeName
+            Case "List"
+                Select Case type
+                    Case "String" : Return [Enum].ToList
+                    Case "UInt64" : Return [Enum].Select(Function(x) ULong.Parse(x)).ToList
+                    Case "Int64" : Return [Enum].Select(Function(x) Long.Parse(x)).ToList
+                    Case "UInt32" : Return [Enum].Select(Function(x) UInteger.Parse(x)).ToList
+                    Case "Int32" : Return [Enum].Select(Function(x) Integer.Parse(x)).ToList
+                    Case "UInt16" : Return [Enum].Select(Function(x) UShort.Parse(x)).ToList
+                    Case "Int16" : Return [Enum].Select(Function(x) Short.Parse(x)).ToList
+                    Case "Boolean" : Return [Enum].Select(Function(x) Boolean.Parse(x)).ToList
+                    Case "Byte" : Return [Enum].Select(Function(x) Byte.Parse(x)).ToList
+                    Case "Decimal" : Return [Enum].Select(Function(x) Decimal.Parse(x)).ToList
+                    Case "Double" : Return [Enum].Select(Function(x) Double.Parse(x)).ToList
+                    Case "Single" : Return [Enum].Select(Function(x) Single.Parse(x)).ToList
+                    Case "DateTime" : Return [Enum].Select(Function(x) DateTime.Parse(x)).ToList
+                    Case "DateTimeOffset" : Return [Enum].Select(Function(x) DateTimeOffset.Parse(x)).ToList
+                    Case "TimeSpan" : Return [Enum].Select(Function(x) TimeSpan.Parse(x)).ToList
+                End Select
+            Case "IEnumerable"
+                Select Case type
+                    Case "String" : Return [Enum]
+                    Case "UInt64" : Return [Enum].Select(Function(x) ULong.Parse(x))
+                    Case "Int64" : Return [Enum].Select(Function(x) Long.Parse(x))
+                    Case "UInt32" : Return [Enum].Select(Function(x) UInteger.Parse(x))
+                    Case "Int32" : Return [Enum].Select(Function(x) Integer.Parse(x))
+                    Case "UInt16" : Return [Enum].Select(Function(x) UShort.Parse(x))
+                    Case "Int16" : Return [Enum].Select(Function(x) Short.Parse(x))
+                    Case "Boolean" : Return [Enum].Select(Function(x) Boolean.Parse(x))
+                    Case "Byte" : Return [Enum].Select(Function(x) Byte.Parse(x))
+                    Case "Decimal" : Return [Enum].Select(Function(x) Decimal.Parse(x))
+                    Case "Double" : Return [Enum].Select(Function(x) Double.Parse(x))
+                    Case "Single" : Return [Enum].Select(Function(x) Single.Parse(x))
+                    Case "DateTime" : Return [Enum].Select(Function(x) DateTime.Parse(x))
+                    Case "DateTimeOffset" : Return [Enum].Select(Function(x) DateTimeOffset.Parse(x))
+                    Case "TimeSpan" : Return [Enum].Select(Function(x) TimeSpan.Parse(x))
+                End Select
+            Case "Array"
+                Select Case type
+                    Case "String" : Return [Enum].ToArray
+                    Case "UInt64" : Return [Enum].Select(Function(x) ULong.Parse(x)).ToArray
+                    Case "Int64" : Return [Enum].Select(Function(x) Long.Parse(x)).ToArray
+                    Case "UInt32" : Return [Enum].Select(Function(x) UInteger.Parse(x)).ToArray
+                    Case "Int32" : Return [Enum].Select(Function(x) Integer.Parse(x)).ToArray
+                    Case "UInt16" : Return [Enum].Select(Function(x) UShort.Parse(x)).ToArray
+                    Case "Int16" : Return [Enum].Select(Function(x) Short.Parse(x)).ToArray
+                    Case "Boolean" : Return [Enum].Select(Function(x) Boolean.Parse(x)).ToArray
+                    Case "Byte" : Return [Enum].Select(Function(x) Byte.Parse(x)).ToArray
+                    Case "Decimal" : Return [Enum].Select(Function(x) Decimal.Parse(x)).ToArray
+                    Case "Double" : Return [Enum].Select(Function(x) Double.Parse(x)).ToArray
+                    Case "Single" : Return [Enum].Select(Function(x) Single.Parse(x)).ToArray
+                    Case "DateTime" : Return [Enum].Select(Function(x) DateTime.Parse(x)).ToArray
+                    Case "DateTimeOffset" : Return [Enum].Select(Function(x) DateTimeOffset.Parse(x)).ToArray
+                    Case "TimeSpan" : Return [Enum].Select(Function(x) TimeSpan.Parse(x)).ToArray
+                End Select
+        End Select
+        Throw New UnsupportedTypeException
+    End Function
 
-        If properties.Any(Function(x) $"{x.PropertyType}".Contains("Collection")) Then
-            Dim collections = properties.Where(Function(x) $"{x.PropertyType}".Contains("Collection"))
+    Private Async Function GetEnumerableOf(id As ULong, name As String, con As SqlConnection) As Task(Of IEnumerable(Of String))
+        Dim list As New List(Of String)
+        Using command As New SqlCommand($"SELECT* FROM _enumerablesOfT WHERE Id = {id} AND PropName = '{name}'", con)
+            Using r = Await command.ExecuteReaderAsync
+                While Await r.ReadAsync
+                    list.Add($"{r.Item(4)}")
+                End While
+            End Using
+        End Using
+        Return list.AsEnumerable
+    End Function
+
+    Private Async Function BuildInsertAsync(Of T As {SQLObject})(obj As T, properties As IOrderedEnumerable(Of PropertyInfo), con As SqlConnection) As Task(Of String)
+        Dim collections = properties.Where(Function(x) GetType(ICollection).IsAssignableFrom(x.PropertyType)).ToImmutableArray
+        If collections.Count > 0 Then
             For Each collection In collections
                 Await InsertCollectionAsync(obj, collection, con)
             Next
         End If
 
-        Dim props = (From prop In properties
-                     Where $"{prop.PropertyType}".Contains("Collection")
-                     Order By prop.GetCustomAttribute(Of StoreAttribute)(True).Priority Descending)
-
+        Dim props = If(collections.Count > 0, properties.Except(collections), properties).ToImmutableArray
 
         Return $"INSERT INTO {obj.Name} ({props.Select(Function(x) x.Name).Aggregate(Function(x, y) x & ", " & y)})" & vbCrLf &
                $"VALUES ({props.Select(Function(x) $"{GetSqlValue(x, obj)}").Aggregate(Function(x, y) x & ", " & y)});"
@@ -594,12 +690,13 @@ Public NotInheritable Class SQLExpressClient
         Dim generic = [Property].GetValue(obj)
         Dim enumerable = GetGenericEnumerable(generic).ToImmutableArray
         Dim index = 0
-        Dim values = DirectCast([Property].GetValue(obj), IEnumerable)
+        Dim values = DirectCast([Property].GetValue(obj), ICollection)
         For Each element In values
             SendQuery($"INSERT INTO _enumerablesOfT (Id, ObjName, PropName, RawKey, RawValue)" & vbCrLf &
                       $"VALUES ({obj.Id}, '{obj.Name}', '{[Property].Name}', {index}, '{element}');", con)
             index += 1
         Next
+        Return Task.CompletedTask
     End Function
 
     Private Function GetGenericEnumerable(obj As Object) As IEnumerable(Of Type)
@@ -627,7 +724,8 @@ Public NotInheritable Class SQLExpressClient
             .AppendLine($"CREATE TABLE {obj.Name} (")
 
             Dim properties = (From prop In obj.GetType.GetProperties
-                              Where prop.GetCustomAttribute(Of StoreAttribute)(True) IsNot Nothing
+                              Where prop.GetCustomAttribute(Of StoreAttribute)(True) IsNot Nothing AndAlso
+                                  Not $"{prop}".Contains("Collection")
                               Order By prop.GetCustomAttribute(Of StoreAttribute)(True).Priority Descending).ToImmutableArray
 
             If properties.Count = 0 Then Throw New EmptyObjectException
@@ -636,7 +734,7 @@ Public NotInheritable Class SQLExpressClient
                 .Append($"{If([Property].GetCustomAttribute(Of NotNullAttribute)(True) IsNot Nothing, "NOT NULL", "")} ")
                 .Append($"{If([Property].GetCustomAttribute(Of PrimaryKeyAttribute)(True) IsNot Nothing, "PRIMARY KEY", "")}")
 
-                If [Property] Is properties.Last() Then .AppendLine(");") Else .AppendLine(",")
+                If [Property] Is properties.Last Then .AppendLine(");") Else .AppendLine(",")
             Next
         End With
         Return sb.ToString
@@ -667,7 +765,7 @@ Public NotInheritable Class SQLExpressClient
     End Function
 
     Private Function GetNullableTypeName(propType As Type) As String
-        Return If(propType.IsGenericType AndAlso propType.GetGenericTypeDefinition() = GetType(Nullable(Of)),
+        Return If(propType.IsGenericType AndAlso propType.GetGenericTypeDefinition = GetType(Nullable(Of)),
                   propType.GetGenericArguments(0).Name,
                   propType.Name)
     End Function

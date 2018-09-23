@@ -11,6 +11,7 @@
     ''' Sets the name of the object. This name is used to create a table in the database.
     ''' </summary>
     ''' <returns></returns>
+    <NotNull>
     Public MustOverride ReadOnly Property Name As String
 
 
