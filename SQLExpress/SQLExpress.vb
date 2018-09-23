@@ -144,6 +144,21 @@ Public NotInheritable Class SQLExpressClient
     Public Sub InitialiseObjects(Of T As {SQLObject})(ParamArray objs As T())
         InitialiseObjectsAsync(objs).Wait()
     End Sub
+
+    Public Async Function InstallDatabase() As Task
+        Using con As New SqlConnection(_connectionString) : Await con.OpenAsync
+            If Await SendScalarAsync(Of Integer)($"IF OBJECT_ID('_enumerablesOfT') IS NULL SELECT 0" & vbCrLf &
+                                                  "ELSE SELECT 1;", con) = 0 Then
+
+                Await SendQueryAsync("CREATE TABLE _enumerablesOfT (" & vbCrLf &
+                                     "    Id BIGINT NOT NULL," & vbCrLf &
+                                     "    ObjName VARCHAR(50) NOT NULL," & vbCrLf &
+                                     "    PropName VARCHAR(50) NOT NULL," & vbCrLf &
+                                     "    RawKey INT NOT NULL," & vbCrLf &
+                                     "    RawValue VARCHAR(50));", con)
+            End If
+        End Using
+    End Function
 #End Region
 #Region "LoadObjectCache"
     ''' <summary>
@@ -188,13 +203,13 @@ Public NotInheritable Class SQLExpressClient
 
             Dim properties = (From prop In obj.GetType.GetProperties
                               Where prop.GetCustomAttribute(Of StoreAttribute)(True) IsNot Nothing
-                              Order By prop.GetCustomAttribute(Of StoreAttribute)(True).Priority Descending).ToImmutableArray
+                              Order By prop.GetCustomAttribute(Of StoreAttribute)(True).Priority Descending)
 
             If properties.Count = 0 Then Throw New EmptyObjectException
-            If properties.Any(Function(x) x.GetCustomAttribute(Of NotNullAttribute)(True) IsNot Nothing AndAlso x.GetValue(obj) Is Nothing) Then Throw New NullPropertyException
+            If properties.Any(Function(x) x.GetCustomAttribute(Of NotNullAttribute)(True) IsNot Nothing AndAlso
+                                  x.GetValue(obj) Is Nothing) Then Throw New NullPropertyException
 
-            Await SendQueryAsync($"INSERT INTO {obj.Name} ({properties.Select(Function(x) x.Name).Aggregate(Function(x, y) x & ", " & y)})" &
-                                 $"VALUES ({properties.Select(Function(x) $"{GetSqlValue(x, obj)}").Aggregate(Function(x, y) x & ", " & y)});", con)
+            Await SendQueryAsync(Await BuildInsertAsync(obj, properties, con), con)
 
             Dim newObj = Await LoadObjectAsync(obj)
             If Not Cache.ContainsKey(newObj.Id) Then Cache.TryAdd(newObj.Id, newObj)
@@ -557,6 +572,43 @@ Public NotInheritable Class SQLExpressClient
     End Function
 #End Region
 #Region "Private Methods"
+    Private Async Function BuildInsertAsync(Of T As {SQLObject})(obj As T, properties As IOrderedEnumerable(Of PropertyInfo), con As SqlConnection) As Task(Of String)
+
+        If properties.Any(Function(x) $"{x.PropertyType}".Contains("Collection")) Then
+            Dim collections = properties.Where(Function(x) $"{x.PropertyType}".Contains("Collection"))
+            For Each collection In collections
+                Await InsertCollectionAsync(obj, collection, con)
+            Next
+        End If
+
+        Dim props = (From prop In properties
+                     Where $"{prop.PropertyType}".Contains("Collection")
+                     Order By prop.GetCustomAttribute(Of StoreAttribute)(True).Priority Descending)
+
+
+        Return $"INSERT INTO {obj.Name} ({props.Select(Function(x) x.Name).Aggregate(Function(x, y) x & ", " & y)})" & vbCrLf &
+               $"VALUES ({props.Select(Function(x) $"{GetSqlValue(x, obj)}").Aggregate(Function(x, y) x & ", " & y)});"
+    End Function
+
+    Private Function InsertCollectionAsync(Of T As {SQLObject})(obj As T, [Property] As PropertyInfo, con As SqlConnection) As Task
+        Dim generic = [Property].GetValue(obj)
+        Dim enumerable = GetGenericEnumerable(generic).ToImmutableArray
+        Dim index = 0
+        Dim values = DirectCast([Property].GetValue(obj), IEnumerable)
+        For Each element In values
+            SendQuery($"INSERT INTO _enumerablesOfT (Id, ObjName, PropName, RawKey, RawValue)" & vbCrLf &
+                      $"VALUES ({obj.Id}, '{obj.Name}', '{[Property].Name}', {index}, '{element}');", con)
+            index += 1
+        Next
+    End Function
+
+    Private Function GetGenericEnumerable(obj As Object) As IEnumerable(Of Type)
+        Return From o In obj.GetType.GetInterfaces
+               Where o.IsGenericType AndAlso
+                     o.GetGenericTypeDefinition = GetType(IEnumerable(Of))
+               Select o.GetGenericArguments(0)
+    End Function
+
     Private Function BuildUpdate(Of T As {SQLObject})(obj As T, properties As ImmutableArray(Of PropertyInfo)) As String
         Dim sb As New StringBuilder
         With sb
@@ -640,9 +692,9 @@ Public NotInheritable Class SQLExpressClient
         Dim propertyType = GetNullableTypeName([property].PropertyType)
 
         Select Case True
-            Case TypeOf value Is Int64 : Return If(propertyType = "UInt64", CULng(value), value)
-            Case TypeOf value Is Int32 : Return If(propertyType = "UInt32", CUInt(value), value)
-            Case TypeOf value Is Int16 : Return If(propertyType = "UInt16", CUShort(value), value)
+            Case TypeOf value Is Long : Return If(propertyType = "UInt64", CULng(value), value)
+            Case TypeOf value Is Integer : Return If(propertyType = "UInt32", CUInt(value), value)
+            Case TypeOf value Is Short : Return If(propertyType = "UInt16", CUShort(value), value)
             Case TypeOf value Is SByte : Return If(propertyType = "Byte", CByte(value), value)
         End Select
         Return value
