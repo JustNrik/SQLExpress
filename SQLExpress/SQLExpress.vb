@@ -266,46 +266,46 @@ Public NotInheritable Class SQLExpressClient
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync
             If Not Await CheckExistenceAsync(toLoad, con) Then Return Await CreateNewObjectAsync(toLoad)
 
-            Dim properties = (From prop In toLoad.GetType.GetProperties
-                              Where prop.GetCustomAttribute(Of StoreAttribute)(True) IsNot Nothing
-                              Order By prop.GetCustomAttribute(Of StoreAttribute)(True).Priority Descending).ToImmutableArray
+                Dim properties = (From prop In toLoad.GetType.GetProperties
+                                  Where prop.GetCustomAttribute(Of StoreAttribute)(True) IsNot Nothing
+                                  Order By prop.GetCustomAttribute(Of StoreAttribute)(True).Priority Descending).ToImmutableArray
 
             Dim propertyNames = (From prop In properties
-                                 Where GetType(ICollection).IsAssignableFrom(prop.PropertyType)
+                                 Where Not GetType(ICollection).IsAssignableFrom(prop.PropertyType)
                                  Select prop.Name).ToImmutableArray
 
-            If propertyNames.Count = 0 Then Throw New EmptyObjectException
+            If properties.Count = 0 Then Throw New EmptyObjectException
 
-            Dim collectionNames = (From prop In toLoad.GetType.GetProperties
-                                   Where GetType(ICollection).IsAssignableFrom(prop.PropertyType)
-                                   Select prop.Name).ToImmutableArray
+                Dim collectionNames = (From prop In toLoad.GetType.GetProperties
+                                       Where GetType(ICollection).IsAssignableFrom(prop.PropertyType)
+                                       Select prop.Name).ToImmutableArray
 
-            Dim flag = Await SendScalarAsync(Of Integer)("SELECT COUNT(Id) FROM _enumerablesOfT", con) > 0
-            If collectionNames.Count > 0 AndAlso flag Then
-                Dim objs As New List(Of ICollection(Of KeyValuePair(Of Integer, String)))
-                For Each name In collectionNames
-                    objs.Add(Await GetCollection(Of Integer, String)(toLoad.Id, name, con))
-                Next
-
-                If objs.Count > 0 Then
-                    Dim index = 0
+                Dim flag = Await SendScalarAsync(Of Integer)("SELECT COUNT(Id) FROM _enumerablesOfT", con) > 0
+                If collectionNames.Count > 0 AndAlso flag Then
+                    Dim objs As New List(Of ICollection(Of KeyValuePair(Of Integer, String)))
                     For Each name In collectionNames
-                        toLoad.GetType.GetProperty(name).SetValue(toLoad, ParseObject(objs(index), toLoad, name))
-                        index += 1
+                        objs.Add(Await GetCollection(Of Integer, String)(toLoad.Id, name, con))
                     Next
-                End If
-            End If
 
-            Using cmd As New SqlCommand($"SELECT* FROM {toLoad.Name} WHERE Id = {toLoad.Id};", con)
-                Using r = Await cmd.ExecuteReaderAsync
-                    While Await r.ReadAsync
-                        For x = 0 To r.FieldCount - 1
-                            toLoad.GetType.GetProperty(propertyNames(x)).SetValue(toLoad, UnsignedFix(toLoad, propertyNames(x), r.Item(propertyNames(x))))
+                    If objs.Count > 0 Then
+                        Dim index = 0
+                        For Each name In collectionNames
+                            toLoad.GetType.GetProperty(name).SetValue(toLoad, ParseObject(objs(index), toLoad, name))
+                            index += 1
                         Next
-                    End While
-                    Return toLoad
+                    End If
+                End If
+
+                Using cmd As New SqlCommand($"SELECT* FROM {toLoad.Name} WHERE Id = {toLoad.Id};", con)
+                    Using r = Await cmd.ExecuteReaderAsync
+                        While Await r.ReadAsync
+                            For x = 0 To r.FieldCount - 1
+                                toLoad.GetType.GetProperty(propertyNames(x)).SetValue(toLoad, UnsignedFix(toLoad, propertyNames(x), r.Item(propertyNames(x))))
+                            Next
+                        End While
+                        Return toLoad
+                    End Using
                 End Using
-            End Using
         End Using
     End Function
     ''' <summary>
@@ -599,7 +599,8 @@ Public NotInheritable Class SQLExpressClient
 
     Private Function ParseObject([Enum] As ICollection(Of KeyValuePair(Of Integer, String)), obj As SQLObject, name As String) As Object
         Dim propType = obj.GetType.GetProperty(name).PropertyType
-        Dim type = GetNullableTypeName(propType.GetGenericArguments(0))
+        Dim type = GetNullableTypeName(If(propType.GenericTypeArguments.Count = 0, propType, propType.GetGenericArguments(0)))
+        Dim typeForDict = If(propType.GenericTypeArguments.Count > 1, GetNullableTypeName(propType.GetGenericArguments(1)), Nothing)
         Dim propName = propType.Name
         Dim typeName = If(propName.Contains("`"c), propName.Substring(0, propName.IndexOf("`"c)), propName)
         typeName = If(propName.Contains("[]"), "Array", typeName)
@@ -660,7 +661,7 @@ Public NotInheritable Class SQLExpressClient
                 End Select
             Case typeName = "Array"
                 Select Case type
-                    Case "String" : Return [Enum].ToArray
+                    Case "String" : Return [Enum].Select(Function(x) x.Value).ToArray
                     Case "UInt64" : Return [Enum].Select(Function(x) ULong.Parse(x.Value)).ToArray
                     Case "Int64" : Return [Enum].Select(Function(x) Long.Parse(x.Value)).ToArray
                     Case "UInt32" : Return [Enum].Select(Function(x) UInteger.Parse(x.Value)).ToArray
@@ -677,7 +678,7 @@ Public NotInheritable Class SQLExpressClient
                     Case "TimeSpan" : Return [Enum].Select(Function(x) TimeSpan.Parse(x.Value)).ToArray
                 End Select
             Case typeName.Contains("Dictionary")
-                Select Case type
+                Select Case typeForDict
                     Case "String" : Return [Enum].ToDictionary
                     Case "UInt64" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, ULong)(x.Key, ULong.Parse(x.Value))).ToDictionary
                     Case "Int64" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Long)(x.Key, Long.Parse(x.Value))).ToDictionary
@@ -803,6 +804,7 @@ Public NotInheritable Class SQLExpressClient
     End Function
 
     Private Function GetNullableTypeName(propType As Type) As String
+        If propType.Name.Contains("[]") Then Return propType.Name.Replace("[]", "")
         Return If(propType.IsGenericType AndAlso propType.GetGenericTypeDefinition = GetType(Nullable(Of)),
                   propType.GetGenericArguments(0).Name,
                   propType.Name)

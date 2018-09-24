@@ -92,6 +92,7 @@
     <Compile Include="Exceptions\EmptyObjectException.vb" />
     <Compile Include="Exceptions\NullPropertyException.vb" />
     <Compile Include="Exceptions\UnsupportedTypeException.vb" />
+    <Compile Include="Extensions.vb" />
     <Compile Include="SQLObject.vb" />
     <Compile Include="SQLExpress.vb" />
     <Compile Include="My Project\AssemblyInfo.vb" />
