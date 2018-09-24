@@ -5,7 +5,7 @@
     ''' <returns></returns>
     <NotNull>
     <PrimaryKey>
-    <Store(255)>
+    <Store(Integer.MaxValue)>
     Public Property Id As ULong
     ''' <summary>
     ''' Sets the name of the object. This name is used to create a table in the database.

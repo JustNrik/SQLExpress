@@ -132,7 +132,7 @@ Public NotInheritable Class SQLExpressClient
     Public Async Function InitialiseObjectsAsync(Of T As {SQLObject})(ParamArray objs As T()) As Task
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync()
             For Each obj In objs
-                If Await CheckObjectExistence(obj, con) = 0 Then Await SendQueryAsync(BuildTable(obj), con)
+                If Not Await CheckObjectExistenceAsync(obj, con) Then Await SendQueryAsync(BuildTable(obj), con)
             Next
         End Using
     End Function
@@ -142,10 +142,14 @@ Public NotInheritable Class SQLExpressClient
     ''' <typeparam name="T"></typeparam>
     ''' <param name="objs"></param>
     Public Sub InitialiseObjects(Of T As {SQLObject})(ParamArray objs As T())
-        InitialiseObjectsAsync(objs).Wait()
+        Using con As New SqlConnection(_connectionString) : con.Open()
+            For Each obj In objs
+                If Not CheckObjectExistence(obj, con) Then SendQuery(BuildTable(obj), con)
+            Next
+        End Using
     End Sub
 
-    Public Async Function InstallDatabase() As Task
+    Public Async Function InstallDatabaseAsync() As Task
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync
             If Await SendScalarAsync(Of Integer)($"IF OBJECT_ID('_enumerablesOfT') IS NULL SELECT 0" & vbCrLf &
                                                   "ELSE SELECT 1;", con) = 0 Then
@@ -159,6 +163,21 @@ Public NotInheritable Class SQLExpressClient
             End If
         End Using
     End Function
+
+    Public Sub InstallDatabase()
+        Using con As New SqlConnection(_connectionString) : con.Open()
+            If SendScalar(Of Integer)($"If OBJECT_ID('_enumerablesOfT') IS NULL SELECT 0" & vbCrLf &
+                                       "ELSE SELECT 1;", con) = 0 Then
+
+                SendQuery("CREATE TABLE _enumerablesOfT (" & vbCrLf &
+                          "    Id BIGINT NOT NULL," & vbCrLf &
+                          "    ObjName VARCHAR(50) NOT NULL," & vbCrLf &
+                          "    PropName VARCHAR(50) NOT NULL," & vbCrLf &
+                          "    RawKey INT NOT NULL," & vbCrLf &
+                          "    RawValue VARCHAR(50));", con)
+            End If
+        End Using
+    End Sub
 #End Region
 #Region "LoadObjectCache"
     ''' <summary>
@@ -188,7 +207,19 @@ Public NotInheritable Class SQLExpressClient
     ''' <typeparam name="T"></typeparam>
     ''' <param name="objs"></param>
     Public Sub LoadObjectCache(Of T As {New, SQLObject})(ParamArray objs As T())
-        LoadObjectCacheAsync(objs).Wait()
+        Using con As New SqlConnection(_connectionString) : con.Open()
+            For Each obj In objs
+                Select Case SendScalar(Of Integer)($"Select COUNT(Id) From {obj.Name};", con)
+                    Case 0 : Continue For
+                    Case Else
+                        Dim ids = YieldData(Of ULong)($"Select Id FROM {obj.Name};", con).ToImmutableArray
+                        For Each id In ids
+                            Dim newObj = LoadObject(New T With {.Id = id})
+                            If Not Cache.ContainsKey(newObj.Id) Then Cache.TryAdd(newObj.Id, newObj)
+                        Next
+                End Select
+            Next
+        End Using
     End Sub
 #End Region
 #Region "CreateNewObject"
@@ -232,7 +263,23 @@ Public NotInheritable Class SQLExpressClient
     ''' <typeparam name="T"></typeparam>
     ''' <param name="obj"></param>
     Public Sub CreateNewObject(Of T As {New, SQLObject})(<Out> ByRef obj As T)
-        obj = CreateNewObjectAsync(obj).Result
+        Dim temp = obj
+        Using con As New SqlConnection(_connectionString) : con.Open()
+
+            Dim properties = (From prop In obj.GetType.GetProperties
+                              Where prop.GetCustomAttribute(Of StoreAttribute)(True) IsNot Nothing
+                              Order By prop.GetCustomAttribute(Of StoreAttribute)(True).Priority Descending)
+
+            If properties.Count = 0 Then Throw New EmptyObjectException
+            If properties.Any(Function(x) x.GetCustomAttribute(Of NotNullAttribute)(True) IsNot Nothing AndAlso
+                                  x.GetValue(temp) Is Nothing) Then Throw New NullPropertyException
+
+            SendQuery(BuildInsertAsync(obj, properties, con).GetAwaiter.GetResult, con)
+
+            Dim newObj = LoadObject(obj)
+            If Not Cache.ContainsKey(newObj.Id) Then Cache.TryAdd(newObj.Id, newObj)
+            obj = newObj
+        End Using
     End Sub
     ''' <summary>
     ''' Adds a new Object to the database. Throws when fail.
@@ -242,7 +289,8 @@ Public NotInheritable Class SQLExpressClient
     ''' <returns></returns>
     Public Function CreateNewObject(Of T As {New, SQLObject})(id As ULong) As T
         Dim obj As New T With {.Id = id}
-        Return CreateNewObjectAsync(obj).Result
+        CreateNewObject(obj)
+        Return obj
     End Function
     ''' <summary>
     ''' Adds a new Object to the database. Throws when fail.
@@ -251,8 +299,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="id"></param>
     ''' <param name="obj"></param>
     Public Sub CreateNewObject(Of T As {New, SQLObject})(id As ULong, <Out> ByRef obj As T)
-        Dim newObj As New T With {.Id = id}
-        obj = CreateNewObjectAsync(newObj).Result
+        obj = CreateNewObject(Of T)(id)
     End Sub
 #End Region
 #Region "LoadObject"
@@ -266,9 +313,9 @@ Public NotInheritable Class SQLExpressClient
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync
             If Not Await CheckExistenceAsync(toLoad, con) Then Return Await CreateNewObjectAsync(toLoad)
 
-                Dim properties = (From prop In toLoad.GetType.GetProperties
-                                  Where prop.GetCustomAttribute(Of StoreAttribute)(True) IsNot Nothing
-                                  Order By prop.GetCustomAttribute(Of StoreAttribute)(True).Priority Descending).ToImmutableArray
+            Dim properties = (From prop In toLoad.GetType.GetProperties
+                              Where prop.GetCustomAttribute(Of StoreAttribute)(True) IsNot Nothing
+                              Order By prop.GetCustomAttribute(Of StoreAttribute)(True).Priority Descending).ToImmutableArray
 
             Dim propertyNames = (From prop In properties
                                  Where Not GetType(ICollection).IsAssignableFrom(prop.PropertyType)
@@ -276,36 +323,36 @@ Public NotInheritable Class SQLExpressClient
 
             If properties.Count = 0 Then Throw New EmptyObjectException
 
-                Dim collectionNames = (From prop In toLoad.GetType.GetProperties
-                                       Where GetType(ICollection).IsAssignableFrom(prop.PropertyType)
-                                       Select prop.Name).ToImmutableArray
+            Dim collectionNames = (From prop In toLoad.GetType.GetProperties
+                                   Where GetType(ICollection).IsAssignableFrom(prop.PropertyType)
+                                   Select prop.Name).ToImmutableArray
 
-                Dim flag = Await SendScalarAsync(Of Integer)("SELECT COUNT(Id) FROM _enumerablesOfT", con) > 0
-                If collectionNames.Count > 0 AndAlso flag Then
-                    Dim objs As New List(Of ICollection(Of KeyValuePair(Of Integer, String)))
+            Dim flag = Await SendScalarAsync(Of Integer)("Select COUNT(Id) FROM _enumerablesOfT", con) > 0
+            If collectionNames.Count > 0 AndAlso flag Then
+                Dim objs As New List(Of ICollection(Of KeyValuePair(Of Integer, String)))
+                For Each name In collectionNames
+                    objs.Add(Await GetCollection(Of Integer, String)(toLoad.Id, name, con))
+                Next
+
+                If objs.Count > 0 Then
+                    Dim index = 0
                     For Each name In collectionNames
-                        objs.Add(Await GetCollection(Of Integer, String)(toLoad.Id, name, con))
+                        toLoad.GetType.GetProperty(name).SetValue(toLoad, ParseObject(objs(index), toLoad, name))
+                        index += 1
                     Next
-
-                    If objs.Count > 0 Then
-                        Dim index = 0
-                        For Each name In collectionNames
-                            toLoad.GetType.GetProperty(name).SetValue(toLoad, ParseObject(objs(index), toLoad, name))
-                            index += 1
-                        Next
-                    End If
                 End If
+            End If
 
-                Using cmd As New SqlCommand($"SELECT* FROM {toLoad.Name} WHERE Id = {toLoad.Id};", con)
-                    Using r = Await cmd.ExecuteReaderAsync
-                        While Await r.ReadAsync
-                            For x = 0 To r.FieldCount - 1
-                                toLoad.GetType.GetProperty(propertyNames(x)).SetValue(toLoad, UnsignedFix(toLoad, propertyNames(x), r.Item(propertyNames(x))))
-                            Next
-                        End While
-                        Return toLoad
-                    End Using
+            Using cmd As New SqlCommand($"Select* FROM {toLoad.Name} WHERE Id = {toLoad.Id};", con)
+                Using r = Await cmd.ExecuteReaderAsync
+                    While Await r.ReadAsync
+                        For x = 0 To r.FieldCount - 1
+                            toLoad.GetType.GetProperty(propertyNames(x)).SetValue(toLoad, UnsignedFix(toLoad, propertyNames(x), r.Item(propertyNames(x))))
+                        Next
+                    End While
+                    Return toLoad
                 End Using
+            End Using
         End Using
     End Function
     ''' <summary>
@@ -325,7 +372,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="obj"></param>
     ''' <returns></returns>
     Public Function LoadObject(Of T As {SQLObject})(obj As T) As T
-        Return LoadObjectAsync(obj).Result
+        Return LoadObjectAsync(obj).GetAwaiter.GetResult
     End Function
     ''' <summary>
     ''' Loads the Object, creates a new one if it doesn't exists
@@ -352,57 +399,32 @@ Public NotInheritable Class SQLExpressClient
     ''' <returns></returns>
     Public Async Function UpdateObjectAsync(Of T As {SQLObject})(toUpdate As T) As Task(Of T)
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync
-            If Not Await CheckExistenceAsync(toUpdate, con) Then Return Await CreateNewObjectAsync(toUpdate)
-
-            Dim properties = (From prop In toUpdate.GetType.GetProperties
-                              Where prop.GetCustomAttribute(Of StoreAttribute)(True) IsNot Nothing AndAlso prop.GetCustomAttribute(Of PrimaryKeyAttribute)(True) Is Nothing
-                              Order By prop.GetCustomAttribute(Of StoreAttribute)(True).Priority Descending).ToImmutableArray
-
-            If properties.Count = 0 Then Throw New EmptyObjectException
-            Await SendQueryAsync(BuildUpdate(toUpdate, properties), con)
-
-            Dim newObj = Await LoadObjectAsync(toUpdate)
-            If Cache.ContainsKey(newObj.Id) Then Cache(newObj.Id) = newObj Else Cache.TryAdd(newObj.Id, newObj)
-            Return newObj
+            If Not Await CheckExistenceAsync(toUpdate, con) Then
+                Return Await CreateNewObjectAsync(toUpdate)
+            Else
+                Await RemoveObjectAsync(toUpdate)
+                Dim newObj = Await CreateNewObjectAsync(toUpdate)
+                Cache.TryAdd(newObj.Id, newObj)
+                Return newObj
+            End If
         End Using
     End Function
     ''' <summary>
     ''' Updates the Object, creates a new one if it doesn't exist.
     ''' </summary>
     ''' <typeparam name="T"></typeparam>
-    ''' <param name="id"></param>
-    ''' <returns></returns>
-    Public Async Function UpdateObjectAsync(Of T As {New, SQLObject})(id As ULong) As Task(Of T)
-        Dim toUpdate As New T With {.Id = id}
-        Return Await UpdateObjectAsync(toUpdate)
-    End Function
-    ''' <summary>
-    ''' Updates the Object, creates a new one if it doesn't exist.
-    ''' </summary>
-    ''' <typeparam name="T"></typeparam>
-    ''' <param name="obj"></param>
-    Public Sub UpdateObject(Of T As {SQLObject})(<Out> ByRef obj As T)
-        obj = UpdateObjectAsync(obj).Result
+    ''' <param name="toUpdate"></param>
+    Public Sub UpdateObject(Of T As {New, SQLObject})(obj As T, <Out> ByRef toUpdate As T)
+        Using con As New SqlConnection(_connectionString) : con.Open()
+            If Not CheckExistence(obj, con) Then
+                CreateNewObject(toUpdate)
+            Else
+                RemoveObject(obj)
+                CreateNewObject(toUpdate)
+                Cache.TryAdd(toUpdate.Id, toUpdate)
+            End If
+        End Using
     End Sub
-    ''' <summary>
-    ''' Updates the Object, creates a new one if it doesn't exist.
-    ''' </summary>
-    ''' <typeparam name="T"></typeparam>
-    ''' <param name="id"></param>
-    Public Sub UpdateObject(Of T As {New, SQLObject})(id As ULong, <Out> ByRef obj As T)
-        Dim newObj As New T With {.Id = id}
-        obj = UpdateObjectAsync(newObj).Result
-    End Sub
-    ''' <summary>
-    ''' Updates the Object, creates a new one if it doesn't exist.
-    ''' </summary>
-    ''' <typeparam name="T"></typeparam>
-    ''' <param name="id"></param>
-    ''' <returns></returns>
-    Public Function UpdateObject(Of T As {New, SQLObject})(id As ULong) As T
-        Dim newObj As New T With {.Id = id}
-        Return UpdateObjectAsync(newObj).Result
-    End Function
 #End Region
 #Region "RemoveObject"
     ''' <summary>
@@ -415,6 +437,7 @@ Public NotInheritable Class SQLExpressClient
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync
             If Not Await CheckExistenceAsync(toRemove, con) Then Return
             Await SendQueryAsync($"DELETE FROM {toRemove.Name} WHERE Id = {toRemove.Id};", con)
+            Await SendQueryAsync($"DELETE FROM _enumerablesOfT WHERE Id = {toRemove.Id};", con)
             If Cache.ContainsKey(toRemove.Id) Then Cache.TryRemove(toRemove.Id, Nothing)
         End Using
     End Function
@@ -455,7 +478,7 @@ Public NotInheritable Class SQLExpressClient
     ''' Sends a query to the database.
     ''' </summary>
     ''' <param name="query"></param>
-    ''' <param name="con"></param>
+    ''' <param name="cOn"></param>
     ''' <returns></returns>
     Public Async Function SendQueryAsync(query As String, Optional con As SqlConnection = Nothing) As Task
         If con Is Nothing Then
@@ -474,7 +497,7 @@ Public NotInheritable Class SQLExpressClient
     ''' Sends a query to the database.
     ''' </summary>
     ''' <param name="query"></param>
-    ''' <param name="con"></param>
+    ''' <param name="cOn"></param>
     Public Sub SendQuery(query As String, Optional con As SqlConnection = Nothing)
         SendQueryAsync(query, con).Wait()
     End Sub
@@ -485,7 +508,7 @@ Public NotInheritable Class SQLExpressClient
     ''' </summary>
     ''' <typeparam name="TResult"></typeparam>
     ''' <param name="query"></param>
-    ''' <param name="con"></param>
+    ''' <param name="cOn"></param>
     ''' <returns></returns>
     Public Async Function SendScalarAsync(Of TResult)(query As String, Optional con As SqlConnection = Nothing) As Task(Of TResult)
         If con Is Nothing Then
@@ -507,7 +530,7 @@ Public NotInheritable Class SQLExpressClient
     ''' </summary>
     ''' <typeparam name="TResult"></typeparam>
     ''' <param name="query"></param>
-    ''' <param name="con"></param>
+    ''' <param name="cOn"></param>
     ''' <returns></returns>
     Public Function SendScalar(Of TResult)(query As String, Optional con As SqlConnection = Nothing) As TResult
         Return SendScalarAsync(Of TResult)(query, con).Result
@@ -519,7 +542,7 @@ Public NotInheritable Class SQLExpressClient
     ''' </summary>
     ''' <typeparam name="TResult"></typeparam>
     ''' <param name="query"></param>
-    ''' <param name="con"></param>
+    ''' <param name="cOn"></param>
     ''' <returns></returns>
     Public Iterator Function YieldData(Of TResult)(query As String, Optional con As SqlConnection = Nothing) As IEnumerable(Of TResult)
         If con Is Nothing Then
@@ -549,16 +572,16 @@ Public NotInheritable Class SQLExpressClient
     ''' </summary>
     ''' <typeparam name="T"></typeparam>
     ''' <param name="obj"></param>
-    ''' <param name="con"></param>
+    ''' <param name="cOn"></param>
     ''' <returns></returns>
     Public Async Function CheckExistenceAsync(Of T As {SQLObject})(obj As T, Optional con As SqlConnection = Nothing) As Task(Of Boolean)
         If con Is Nothing Then
-            Using cmd As New SqlCommand($"SELECT COUNT(Id) FROM {obj.Name} WHERE Id = {obj.Id};", con)
+            Using cmd As New SqlCommand($"Select COUNT(Id) FROM {obj.Name} WHERE Id = {obj.Id};", con)
                 Return DirectCast(Await cmd.ExecuteScalarAsync, Integer) = 1
             End Using
         Else
             Using conn As New SqlConnection(_connectionString) : Await conn.OpenAsync
-                Using cmd As New SqlCommand($"SELECT COUNT(Id) FROM {obj.Name} WHERE Id = {obj.Id};", con)
+                Using cmd As New SqlCommand($"Select COUNT(Id) FROM {obj.Name} WHERE Id = {obj.Id};", con)
                     Return DirectCast(Await cmd.ExecuteScalarAsync, Integer) = 1
                 End Using
             End Using
@@ -578,7 +601,7 @@ Public NotInheritable Class SQLExpressClient
     ''' </summary>
     ''' <typeparam name="T"></typeparam>
     ''' <param name="id"></param>
-    ''' <param name="con"></param>
+    ''' <param name="cOn"></param>
     ''' <returns></returns>
     Public Async Function CheckExistenceAsync(Of T As {New, SQLObject})(id As ULong, Optional con As SqlConnection = Nothing) As Task(Of Boolean)
         Dim obj As New T With {.Id = id}
@@ -596,7 +619,6 @@ Public NotInheritable Class SQLExpressClient
     End Function
 #End Region
 #Region "Private Methods"
-
     Private Function ParseObject([Enum] As ICollection(Of KeyValuePair(Of Integer, String)), obj As SQLObject, name As String) As Object
         Dim propType = obj.GetType.GetProperty(name).PropertyType
         Dim type = GetNullableTypeName(If(propType.GenericTypeArguments.Count = 0, propType, propType.GetGenericArguments(0)))
@@ -698,10 +720,9 @@ Public NotInheritable Class SQLExpressClient
         End Select
         Throw New UnsupportedTypeException
     End Function
-
     Private Async Function GetCollection(Of TKey, TValue)(id As ULong, name As String, con As SqlConnection) As Task(Of ICollection(Of KeyValuePair(Of TKey, TValue)))
         Dim dict As New Dictionary(Of TKey, TValue)
-        Using command As New SqlCommand($"SELECT* FROM _enumerablesOfT WHERE Id = {id} AND PropName = '{name}'", con)
+        Using command As New SqlCommand($"Select* FROM _enumerablesOfT WHERE Id = {id} And PropName = '{name}'", con)
             Using r = Await command.ExecuteReaderAsync
                 While Await r.ReadAsync
                     dict.Add(DirectCast(r.Item(3), TKey), DirectCast(r.Item(4), TValue))
@@ -710,7 +731,6 @@ Public NotInheritable Class SQLExpressClient
         End Using
         Return dict
     End Function
-
     Private Async Function BuildInsertAsync(Of T As {SQLObject})(obj As T, properties As IOrderedEnumerable(Of PropertyInfo), con As SqlConnection) As Task(Of String)
         Dim collections = properties.Where(Function(x) GetType(ICollection).IsAssignableFrom(x.PropertyType)).ToImmutableArray
         If collections.Count > 0 Then
@@ -724,12 +744,12 @@ Public NotInheritable Class SQLExpressClient
         Return $"INSERT INTO {obj.Name} ({props.Select(Function(x) x.Name).Aggregate(Function(x, y) x & ", " & y)})" & vbCrLf &
                $"VALUES ({props.Select(Function(x) $"{GetSqlValue(x, obj)}").Aggregate(Function(x, y) x & ", " & y)});"
     End Function
-
     Private Function InsertCollectionAsync(Of T As {SQLObject})(obj As T, [Property] As PropertyInfo, con As SqlConnection) As Task
         Dim generic = [Property].GetValue(obj)
+        If generic Is Nothing Then Return Task.CompletedTask
         Dim enumerable = GetGenericEnumerable(generic).ToImmutableArray
         Dim index = 0
-        Dim values = DirectCast([Property].GetValue(obj), ICollection)
+        Dim values = DirectCast(generic, ICollection)
         For Each element In values
             SendQuery($"INSERT INTO _enumerablesOfT (Id, ObjName, PropName, RawKey, RawValue)" & vbCrLf &
                       $"VALUES ({obj.Id}, '{obj.Name}', '{[Property].Name}', {index}, '{element}');", con)
@@ -743,19 +763,6 @@ Public NotInheritable Class SQLExpressClient
                Where o.IsGenericType AndAlso
                      o.GetGenericTypeDefinition = GetType(IEnumerable(Of))
                Select o.GetGenericArguments(0)
-    End Function
-
-    Private Function BuildUpdate(Of T As {SQLObject})(obj As T, properties As ImmutableArray(Of PropertyInfo)) As String
-        Dim sb As New StringBuilder
-        With sb
-            .AppendLine($"UPDATE {obj.Name}")
-            .Append("SET ")
-            For Each [Property] In properties
-                .AppendLine($"{[Property].Name} = {GetSqlValue([Property], obj)}{If([Property] IsNot properties.Last, ",", "")}")
-            Next
-            .AppendLine($"WHERE Id = {obj.Id};")
-        End With
-        Return sb.ToString
     End Function
     Private Function BuildTable(Of T As {SQLObject})(obj As T) As String
         Dim sb As New StringBuilder
@@ -778,11 +785,16 @@ Public NotInheritable Class SQLExpressClient
         End With
         Return sb.ToString
     End Function
-    Private Async Function CheckObjectExistence(Of T As {SQLObject})(obj As T, con As SqlConnection) As Task(Of Integer)
-        Return Await SendScalarAsync(Of Integer)($"IF OBJECT_ID('{obj.Name}') IS NULL SELECT 0" & vbCrLf &
-                                                  "ELSE SELECT 1;", con)
+    Private Async Function CheckObjectExistenceAsync(Of T As {SQLObject})(obj As T, con As SqlConnection) As Task(Of Boolean)
+        Return (Await SendScalarAsync(Of Integer)($"IF OBJECT_ID('{obj.Name}') IS NULL SELECT 0" & vbCrLf &
+                                                   "ELSE SELECT 1;", con)) = 1
     End Function
-    Private Function ParseType(typeName As String, Optional stringLimit As Byte? = Nothing) As String
+
+    Private Function CheckObjectExistence(Of T As {SQLObject})(obj As T, con As SqlConnection) As Boolean
+        Return (SendScalar(Of Integer)($"IF OBJECT_ID('{obj.Name}') IS NULL SELECT 0" & vbCrLf &
+                                        "ELSE SELECT 1;", con)) = 1
+    End Function
+    Private Function ParseType(typeName As String, Optional stringLimit As Integer? = Nothing) As String
         With typeName
             Select Case True
                 Case .Contains("Int64") : Return "BIGINT"
