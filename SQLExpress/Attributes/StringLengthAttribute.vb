@@ -1,9 +1,11 @@
-﻿<AttributeUsage(AttributeTargets.Property)>
-Public Class StringLengthAttribute
-    Inherits Attribute
+﻿Namespace Attributes
+    <AttributeUsage(AttributeTargets.Property)>
+    Public Class StringLengthAttribute
+        Inherits Attribute
 
-    Public Property Length As Byte
-    Sub New(length As Byte)
-        Me.Length = length
-    End Sub
-End Class
+        Public Property Length As Byte
+        Sub New(length As Byte)
+            Me.Length = length
+        End Sub
+    End Class
+End Namespace
