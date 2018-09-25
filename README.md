@@ -58,10 +58,8 @@ async Task Initialise()
 {
     var dbo = _services.GetService<SQLExpressClient>();
     // This is a way
-    var objs = new SQLObject[] { new Person(), new Employee(), new Derp() };
+    IStoreableObject[] objs = new[] { new Person(), new Employee(), new Derp() };
     await dbo.InitialiseObjectsAsync(objs);
-    // This is another way
-    await dbo.InitialiseObjectsAsync<GuildObject>(new Person(), new Employee(), new Derp());
     // You can also load the Cache along with the initialisation
     await dbo.LoadObjectCacheAsync(new Person());
     await dbo.LoadObjectCacheAsync(new Employee());
@@ -72,10 +70,8 @@ async Task Initialise()
 Async Function Initialise() As Task
     Dim dbo = _services.GetService(Of SQLExpressClient)
     ' This is a way
-    Dim objs = New SQLObject() {New Person, New Employee, New Derp}
+    Dim objs As IStoreableObject = {New Person, New Employee, New Derp}
     Await dbo.InitialiseObjectsAsync(objs)
-    ' This is another way
-    Await dbo.InitialiseObjectsAsync(Of GuildObject)(New Person, New Employee, New Derp)
     ' You can also load the Cache along with the initialisation
     Await dbo.LoadObjectCacheAsync(New Person)
     Await dbo.LoadObjectCacheAsync(New Employee)
@@ -87,7 +83,7 @@ And you're done. You can Save, Load or Create new objects as you please. They wi
 
 # How do I make an Object?
 
-You must create a `Class` that inherits from `SQLObject` and add `Store` Attribute on the properties you want to store.  Optionally, you can provide an index to Store, this will affect the order they are organized. It doesn't really matter, just for organization.
+You must create a `Class` that inherits from `SQLObject` or Implement `IStoreableObject` interface and add `Store` Attribute on the properties you want to store.  Optionally, you can provide an index to Store, this will affect the order they are organized. It doesn't really matter, just for organization.
 
 ```cs
 public class Person : SQLObject
