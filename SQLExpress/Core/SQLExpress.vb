@@ -13,6 +13,7 @@ Imports SQLExpress.Attributes
 Imports SQLExpress.Interfaces
 Imports SQLExpress.Exceptions
 Imports SQLExpress.Extensions
+Imports System.Collections.ObjectModel
 #End Region
 Namespace Core
     Public NotInheritable Class SQLExpressClient
@@ -441,12 +442,12 @@ Namespace Core
         ''' </summary>
         ''' <typeparam name="T"></typeparam>
         ''' <param name="toUpdate"></param>
-        Public Sub UpdateObject(Of T As {New, IStoreableObject})(obj As T, <Out> ByRef toUpdate As T)
+        Public Sub UpdateObject(Of T As {New, IStoreableObject})(ByRef toUpdate As T)
             Using con As New SqlConnection(_connectionString) : con.Open()
-                If Not CheckExistence(obj, con) Then
+                If Not CheckExistence(toUpdate, con) Then
                     CreateNewObject(toUpdate)
                 Else
-                    RemoveObject(obj)
+                    RemoveObject(toUpdate)
                     CreateNewObject(toUpdate)
                     If Cache.ContainsKey(toUpdate.Id) Then Cache(toUpdate.Id) = toUpdate Else Cache.TryAdd(toUpdate.Id, toUpdate)
                 End If
@@ -487,6 +488,7 @@ Namespace Core
             Using con As New SqlConnection(_connectionString) : con.Open()
                 If Not CheckExistence(toRemove, con) Then Return
                 SendQuery($"DELETE FROM {toRemove.Name} WHERE Id = {toRemove.Id}", con)
+                SendQuery($"DELETE FROM _enumerablesOfT WHERE Id = {toRemove.Id}", con)
                 If Cache.ContainsKey(toRemove.Id) Then Cache.TryRemove(toRemove.Id, Nothing)
             End Using
         End Sub
@@ -665,7 +667,7 @@ Namespace Core
             Select Case typeName
                 Case "List", "IList"
                     Select Case type
-                        Case "String" : Return [Enum].ToList
+                        Case "String" : Return [Enum].Select(Function(x) x.Value).ToList
                         Case "UInt64" : Return [Enum].Select(Function(x) ULong.Parse(x.Value)).ToList
                         Case "Int64" : Return [Enum].Select(Function(x) Long.Parse(x.Value)).ToList
                         Case "UInt32" : Return [Enum].Select(Function(x) UInteger.Parse(x.Value)).ToList
@@ -674,6 +676,7 @@ Namespace Core
                         Case "Int16" : Return [Enum].Select(Function(x) Short.Parse(x.Value)).ToList
                         Case "Boolean" : Return [Enum].Select(Function(x) Boolean.Parse(x.Value)).ToList
                         Case "Byte" : Return [Enum].Select(Function(x) Byte.Parse(x.Value)).ToList
+                        Case "SByte" : Return [Enum].Select(Function(x) SByte.Parse(x.Value)).ToList
                         Case "Decimal" : Return [Enum].Select(Function(x) Decimal.Parse(x.Value)).ToList
                         Case "Double" : Return [Enum].Select(Function(x) Double.Parse(x.Value)).ToList
                         Case "Single" : Return [Enum].Select(Function(x) Single.Parse(x.Value)).ToList
@@ -681,9 +684,28 @@ Namespace Core
                         Case "DateTimeOffset" : Return [Enum].Select(Function(x) DateTimeOffset.Parse(x.Value)).ToList
                         Case "TimeSpan" : Return [Enum].Select(Function(x) TimeSpan.Parse(x.Value)).ToList
                     End Select
+                Case "ImmutableList", "IImmutableList"
+                    Select Case type
+                        Case "String" : Return [Enum].Select(Function(x) x.Value).ToImmutableList
+                        Case "UInt64" : Return [Enum].Select(Function(x) ULong.Parse(x.Value)).ToImmutableList
+                        Case "Int64" : Return [Enum].Select(Function(x) Long.Parse(x.Value)).ToImmutableList
+                        Case "UInt32" : Return [Enum].Select(Function(x) UInteger.Parse(x.Value)).ToImmutableList
+                        Case "Int32" : Return [Enum].Select(Function(x) Integer.Parse(x.Value)).ToImmutableList
+                        Case "UInt16" : Return [Enum].Select(Function(x) UShort.Parse(x.Value)).ToImmutableList
+                        Case "Int16" : Return [Enum].Select(Function(x) Short.Parse(x.Value)).ToImmutableList
+                        Case "Boolean" : Return [Enum].Select(Function(x) Boolean.Parse(x.Value)).ToImmutableList
+                        Case "Byte" : Return [Enum].Select(Function(x) Byte.Parse(x.Value)).ToImmutableList
+                        Case "SByte" : Return [Enum].Select(Function(x) SByte.Parse(x.Value)).ToImmutableList
+                        Case "Decimal" : Return [Enum].Select(Function(x) Decimal.Parse(x.Value)).ToImmutableList
+                        Case "Double" : Return [Enum].Select(Function(x) Double.Parse(x.Value)).ToImmutableList
+                        Case "Single" : Return [Enum].Select(Function(x) Single.Parse(x.Value)).ToImmutableList
+                        Case "DateTime" : Return [Enum].Select(Function(x) Date.Parse(x.Value)).ToImmutableList
+                        Case "DateTimeOffset" : Return [Enum].Select(Function(x) DateTimeOffset.Parse(x.Value)).ToImmutableList
+                        Case "TimeSpan" : Return [Enum].Select(Function(x) TimeSpan.Parse(x.Value)).ToImmutableList
+                    End Select
                 Case "Collection", "ICollection"
                     Select Case type
-                        Case "String" : Return [Enum]
+                        Case "String" : Return [Enum].Select(Function(x) x.Value)
                         Case "UInt64" : Return [Enum].Select(Function(x) ULong.Parse(x.Value))
                         Case "Int64" : Return [Enum].Select(Function(x) Long.Parse(x.Value))
                         Case "UInt32" : Return [Enum].Select(Function(x) UInteger.Parse(x.Value))
@@ -692,6 +714,7 @@ Namespace Core
                         Case "Int16" : Return [Enum].Select(Function(x) Short.Parse(x.Value))
                         Case "Boolean" : Return [Enum].Select(Function(x) Boolean.Parse(x.Value))
                         Case "Byte" : Return [Enum].Select(Function(x) Byte.Parse(x.Value))
+                        Case "SByte" : Return [Enum].Select(Function(x) SByte.Parse(x.Value))
                         Case "Decimal" : Return [Enum].Select(Function(x) Decimal.Parse(x.Value))
                         Case "Double" : Return [Enum].Select(Function(x) Double.Parse(x.Value))
                         Case "Single" : Return [Enum].Select(Function(x) Single.Parse(x.Value))
@@ -699,9 +722,28 @@ Namespace Core
                         Case "DateTimeOffset" : Return [Enum].Select(Function(x) DateTimeOffset.Parse(x.Value))
                         Case "TimeSpan" : Return [Enum].Select(Function(x) TimeSpan.Parse(x.Value))
                     End Select
+                Case "ReadOnlyCollection", "IReadOnlyCollection"
+                    Select Case type
+                        Case "String" : Return New ReadOnlyCollection(Of String)([Enum].Select(Function(x) x.Value).ToArray)
+                        Case "UInt64" : Return New ReadOnlyCollection(Of ULong)([Enum].Select(Function(x) ULong.Parse(x.Value)).ToArray)
+                        Case "Int64" : Return New ReadOnlyCollection(Of Long)([Enum].Select(Function(x) Long.Parse(x.Value)).ToArray)
+                        Case "UInt32" : Return New ReadOnlyCollection(Of UInteger)([Enum].Select(Function(x) UInteger.Parse(x.Value)).ToArray)
+                        Case "Int32" : Return New ReadOnlyCollection(Of Integer)([Enum].Select(Function(x) Integer.Parse(x.Value)).ToArray)
+                        Case "UInt16" : Return New ReadOnlyCollection(Of UShort)([Enum].Select(Function(x) UShort.Parse(x.Value)).ToArray)
+                        Case "Int16" : Return New ReadOnlyCollection(Of Short)([Enum].Select(Function(x) Short.Parse(x.Value)).ToArray)
+                        Case "Boolean" : Return New ReadOnlyCollection(Of Boolean)([Enum].Select(Function(x) Boolean.Parse(x.Value)).ToArray)
+                        Case "Byte" : Return New ReadOnlyCollection(Of Byte)([Enum].Select(Function(x) Byte.Parse(x.Value)).ToArray)
+                        Case "SByte" : Return New ReadOnlyCollection(Of SByte)([Enum].Select(Function(x) SByte.Parse(x.Value)).ToArray)
+                        Case "Decimal" : Return New ReadOnlyCollection(Of Decimal)([Enum].Select(Function(x) Decimal.Parse(x.Value)).ToArray)
+                        Case "Double" : Return New ReadOnlyCollection(Of Double)([Enum].Select(Function(x) Double.Parse(x.Value)).ToArray)
+                        Case "Single" : Return New ReadOnlyCollection(Of Single)([Enum].Select(Function(x) Single.Parse(x.Value)).ToArray)
+                        Case "DateTime" : Return New ReadOnlyCollection(Of Date)([Enum].Select(Function(x) Date.Parse(x.Value)).ToArray)
+                        Case "DateTimeOffset" : Return New ReadOnlyCollection(Of DateTimeOffset)([Enum].Select(Function(x) DateTimeOffset.Parse(x.Value)).ToArray)
+                        Case "TimeSpan" : Return New ReadOnlyCollection(Of TimeSpan)([Enum].Select(Function(x) TimeSpan.Parse(x.Value)).ToArray)
+                    End Select
                 Case "Enumerable", "IEnumerable"
                     Select Case type
-                        Case "String" : Return [Enum].AsEnumerable
+                        Case "String" : Return [Enum].Select(Function(x) x.Value).AsEnumerable
                         Case "UInt64" : Return [Enum].Select(Function(x) ULong.Parse(x.Value)).AsEnumerable
                         Case "Int64" : Return [Enum].Select(Function(x) Long.Parse(x.Value)).AsEnumerable
                         Case "UInt32" : Return [Enum].Select(Function(x) UInteger.Parse(x.Value)).AsEnumerable
@@ -710,6 +752,7 @@ Namespace Core
                         Case "Int16" : Return [Enum].Select(Function(x) Short.Parse(x.Value)).AsEnumerable
                         Case "Boolean" : Return [Enum].Select(Function(x) Boolean.Parse(x.Value)).AsEnumerable
                         Case "Byte" : Return [Enum].Select(Function(x) Byte.Parse(x.Value)).AsEnumerable
+                        Case "SByte" : Return [Enum].Select(Function(x) SByte.Parse(x.Value)).AsEnumerable
                         Case "Decimal" : Return [Enum].Select(Function(x) Decimal.Parse(x.Value)).AsEnumerable
                         Case "Double" : Return [Enum].Select(Function(x) Double.Parse(x.Value)).AsEnumerable
                         Case "Single" : Return [Enum].Select(Function(x) Single.Parse(x.Value)).AsEnumerable
@@ -728,12 +771,70 @@ Namespace Core
                         Case "Int16" : Return [Enum].Select(Function(x) Short.Parse(x.Value)).ToArray
                         Case "Boolean" : Return [Enum].Select(Function(x) Boolean.Parse(x.Value)).ToArray
                         Case "Byte" : Return [Enum].Select(Function(x) Byte.Parse(x.Value)).ToArray
+                        Case "SByte" : Return [Enum].Select(Function(x) SByte.Parse(x.Value)).ToArray
                         Case "Decimal" : Return [Enum].Select(Function(x) Decimal.Parse(x.Value)).ToArray
                         Case "Double" : Return [Enum].Select(Function(x) Double.Parse(x.Value)).ToArray
                         Case "Single" : Return [Enum].Select(Function(x) Single.Parse(x.Value)).ToArray
                         Case "DateTime" : Return [Enum].Select(Function(x) Date.Parse(x.Value)).ToArray
                         Case "DateTimeOffset" : Return [Enum].Select(Function(x) DateTimeOffset.Parse(x.Value)).ToArray
                         Case "TimeSpan" : Return [Enum].Select(Function(x) TimeSpan.Parse(x.Value)).ToArray
+                    End Select
+                Case "ImmutableArray", "IImmutableArray"
+                    Select Case type
+                        Case "String" : Return [Enum].Select(Function(x) x.Value).ToImmutableArray
+                        Case "UInt64" : Return [Enum].Select(Function(x) ULong.Parse(x.Value)).ToImmutableArray
+                        Case "Int64" : Return [Enum].Select(Function(x) Long.Parse(x.Value)).ToImmutableArray
+                        Case "UInt32" : Return [Enum].Select(Function(x) UInteger.Parse(x.Value)).ToImmutableArray
+                        Case "Int32" : Return [Enum].Select(Function(x) Integer.Parse(x.Value)).ToImmutableArray
+                        Case "UInt16" : Return [Enum].Select(Function(x) UShort.Parse(x.Value)).ToImmutableArray
+                        Case "Int16" : Return [Enum].Select(Function(x) Short.Parse(x.Value)).ToImmutableArray
+                        Case "Boolean" : Return [Enum].Select(Function(x) Boolean.Parse(x.Value)).ToImmutableArray
+                        Case "Byte" : Return [Enum].Select(Function(x) Byte.Parse(x.Value)).ToImmutableArray
+                        Case "SByte" : Return [Enum].Select(Function(x) SByte.Parse(x.Value)).ToImmutableArray
+                        Case "Decimal" : Return [Enum].Select(Function(x) Decimal.Parse(x.Value)).ToImmutableArray
+                        Case "Double" : Return [Enum].Select(Function(x) Double.Parse(x.Value)).ToImmutableArray
+                        Case "Single" : Return [Enum].Select(Function(x) Single.Parse(x.Value)).ToImmutableArray
+                        Case "DateTime" : Return [Enum].Select(Function(x) Date.Parse(x.Value)).ToImmutableArray
+                        Case "DateTimeOffset" : Return [Enum].Select(Function(x) DateTimeOffset.Parse(x.Value)).ToImmutableArray
+                        Case "TimeSpan" : Return [Enum].Select(Function(x) TimeSpan.Parse(x.Value)).ToImmutableArray
+                    End Select
+                Case "HashSet", "ISet"
+                    Select Case type
+                        Case "String" : Return [Enum].Select(Function(x) x.Value).ToHashSet
+                        Case "UInt64" : Return [Enum].Select(Function(x) ULong.Parse(x.Value)).ToHashSet
+                        Case "Int64" : Return [Enum].Select(Function(x) Long.Parse(x.Value)).ToHashSet
+                        Case "UInt32" : Return [Enum].Select(Function(x) UInteger.Parse(x.Value)).ToHashSet
+                        Case "Int32" : Return [Enum].Select(Function(x) Integer.Parse(x.Value)).ToHashSet
+                        Case "UInt16" : Return [Enum].Select(Function(x) UShort.Parse(x.Value)).ToHashSet
+                        Case "Int16" : Return [Enum].Select(Function(x) Short.Parse(x.Value)).ToHashSet
+                        Case "Boolean" : Return [Enum].Select(Function(x) Boolean.Parse(x.Value)).ToHashSet
+                        Case "Byte" : Return [Enum].Select(Function(x) Byte.Parse(x.Value)).ToHashSet
+                        Case "SByte" : Return [Enum].Select(Function(x) SByte.Parse(x.Value)).ToHashSet
+                        Case "Decimal" : Return [Enum].Select(Function(x) Decimal.Parse(x.Value)).ToHashSet
+                        Case "Double" : Return [Enum].Select(Function(x) Double.Parse(x.Value)).ToHashSet
+                        Case "Single" : Return [Enum].Select(Function(x) Single.Parse(x.Value)).ToHashSet
+                        Case "DateTime" : Return [Enum].Select(Function(x) Date.Parse(x.Value)).ToHashSet
+                        Case "DateTimeOffset" : Return [Enum].Select(Function(x) DateTimeOffset.Parse(x.Value)).ToHashSet
+                        Case "TimeSpan" : Return [Enum].Select(Function(x) TimeSpan.Parse(x.Value)).ToHashSet
+                    End Select
+                Case "ImmutableHashSet", "IImmutableSet"
+                    Select Case type
+                        Case "String" : Return [Enum].Select(Function(x) x.Value).ToImmutableHashSet
+                        Case "UInt64" : Return [Enum].Select(Function(x) ULong.Parse(x.Value)).ToImmutableHashSet
+                        Case "Int64" : Return [Enum].Select(Function(x) Long.Parse(x.Value)).ToImmutableHashSet
+                        Case "UInt32" : Return [Enum].Select(Function(x) UInteger.Parse(x.Value)).ToImmutableHashSet
+                        Case "Int32" : Return [Enum].Select(Function(x) Integer.Parse(x.Value)).ToImmutableHashSet
+                        Case "UInt16" : Return [Enum].Select(Function(x) UShort.Parse(x.Value)).ToImmutableHashSet
+                        Case "Int16" : Return [Enum].Select(Function(x) Short.Parse(x.Value)).ToImmutableHashSet
+                        Case "Boolean" : Return [Enum].Select(Function(x) Boolean.Parse(x.Value)).ToImmutableHashSet
+                        Case "Byte" : Return [Enum].Select(Function(x) Byte.Parse(x.Value)).ToImmutableHashSet
+                        Case "SByte" : Return [Enum].Select(Function(x) SByte.Parse(x.Value)).ToImmutableHashSet
+                        Case "Decimal" : Return [Enum].Select(Function(x) Decimal.Parse(x.Value)).ToImmutableHashSet
+                        Case "Double" : Return [Enum].Select(Function(x) Double.Parse(x.Value)).ToImmutableHashSet
+                        Case "Single" : Return [Enum].Select(Function(x) Single.Parse(x.Value)).ToImmutableHashSet
+                        Case "DateTime" : Return [Enum].Select(Function(x) Date.Parse(x.Value)).ToImmutableHashSet
+                        Case "DateTimeOffset" : Return [Enum].Select(Function(x) DateTimeOffset.Parse(x.Value)).ToImmutableHashSet
+                        Case "TimeSpan" : Return [Enum].Select(Function(x) TimeSpan.Parse(x.Value)).ToImmutableHashSet
                     End Select
                 Case "Dictionary", "IDictionary"
                     Select Case typeForDict
@@ -746,6 +847,7 @@ Namespace Core
                         Case "Int16" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Short)(x.Key, Short.Parse(x.Value))).ToDictionary
                         Case "Boolean" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Boolean)(x.Key, Boolean.Parse(x.Value))).ToDictionary
                         Case "Byte" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Byte)(x.Key, Byte.Parse(x.Value))).ToDictionary
+                        Case "SByte" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, SByte)(x.Key, SByte.Parse(x.Value))).ToDictionary
                         Case "Decimal" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Decimal)(x.Key, Decimal.Parse(x.Value))).ToDictionary
                         Case "Double" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Double)(x.Key, Double.Parse(x.Value))).ToDictionary
                         Case "Single" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Single)(x.Key, Single.Parse(x.Value))).ToDictionary
@@ -753,8 +855,27 @@ Namespace Core
                         Case "DateTimeOffset" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, DateTimeOffset)(x.Key, DateTimeOffset.Parse(x.Value))).ToDictionary
                         Case "TimeSpan" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, TimeSpan)(x.Key, TimeSpan.Parse(x.Value))).ToDictionary
                     End Select
+                Case "ImmutableDictionary", "IImmutableDictionary"
+                    Select Case typeForDict
+                        Case "String" : Return [Enum].ToImmutableDictionary
+                        Case "UInt64" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, ULong)(x.Key, ULong.Parse(x.Value))).ToImmutableDictionary
+                        Case "Int64" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Long)(x.Key, Long.Parse(x.Value))).ToImmutableDictionary
+                        Case "UInt32" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, UInteger)(x.Key, UInteger.Parse(x.Value))).ToImmutableDictionary
+                        Case "Int32" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Integer)(x.Key, Integer.Parse(x.Value))).ToImmutableDictionary
+                        Case "UInt16" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, UShort)(x.Key, UShort.Parse(x.Value))).ToImmutableDictionary
+                        Case "Int16" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Short)(x.Key, Short.Parse(x.Value))).ToImmutableDictionary
+                        Case "Boolean" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Boolean)(x.Key, Boolean.Parse(x.Value))).ToImmutableDictionary
+                        Case "Byte" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Byte)(x.Key, Byte.Parse(x.Value))).ToImmutableDictionary
+                        Case "SByte" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, SByte)(x.Key, SByte.Parse(x.Value))).ToImmutableDictionary
+                        Case "Decimal" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Decimal)(x.Key, Decimal.Parse(x.Value))).ToImmutableDictionary
+                        Case "Double" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Double)(x.Key, Double.Parse(x.Value))).ToImmutableDictionary
+                        Case "Single" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Single)(x.Key, Single.Parse(x.Value))).ToImmutableDictionary
+                        Case "DateTime" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Date)(x.Key, Date.Parse(x.Value))).ToImmutableDictionary
+                        Case "DateTimeOffset" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, DateTimeOffset)(x.Key, DateTimeOffset.Parse(x.Value))).ToImmutableDictionary
+                        Case "TimeSpan" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, TimeSpan)(x.Key, TimeSpan.Parse(x.Value))).ToImmutableDictionary
+                    End Select
             End Select
-            Throw New UnsupportedTypeException
+                    Throw New UnsupportedTypeException
         End Function
         Private Async Function GetCollection(Of TKey, TValue)(id As ULong, name As String, con As SqlConnection) As Task(Of ICollection(Of KeyValuePair(Of TKey, TValue)))
             Dim dict As New Dictionary(Of TKey, TValue)
@@ -824,30 +945,32 @@ Namespace Core
         End Function
         Private Async Function CheckObjectExistenceAsync(Of T As {IStoreableObject})(obj As T, con As SqlConnection) As Task(Of Boolean)
             Return (Await SendScalarAsync(Of Integer)($"IF OBJECT_ID('{obj.Name}') IS NULL SELECT 0" & vbCrLf &
-                                                   "ELSE SELECT 1;", con).Unawait) = 1
+                                                       "ELSE SELECT 1;", con).Unawait) = 1
         End Function
 
         Private Function CheckObjectExistence(Of T As {IStoreableObject})(obj As T, con As SqlConnection) As Boolean
             Return (SendScalar(Of Integer)($"IF OBJECT_ID('{obj.Name}') IS NULL SELECT 0" & vbCrLf &
-                                        "ELSE SELECT 1;", con)) = 1
+                                            "ELSE SELECT 1;", con)) = 1
         End Function
         Private Function ParseType(typeName As String, Optional stringLimit As Integer? = Nothing) As String
-            With typeName
-                Select Case True
-                    Case .Contains("Int64") : Return "BIGINT"
-                    Case .Contains("Int32") : Return "INT"
-                    Case .Contains("Int16") : Return "SMALLINT"
-                    Case .Contains("Boolean") : Return "BIT"
-                    Case .Contains("String") : Return $"VARCHAR({If(stringLimit, _stringLimit)})"
-                    Case .Contains("Byte") : Return "TINYINT"
-                    Case .Contains("Decimal") : Return "DECIMAL"
-                    Case .Contains("Double") : Return "FLOAT"
-                    Case .Contains("Single") : Return "REAL"
-                    Case .Contains("DateTime") : Return "DATE"
-                    Case .Contains("TimeSpan") : Return "TIME"
-                    Case .Contains("DateTimeOffset") : Return "DATETIMEOFFSET"
-                End Select
-            End With
+            Select Case typeName
+                Case "UInt64" : Return "DECIMAL(20,0)"
+                Case "Int64" : Return "BIGINT"
+                Case "UInt32" : Return "DECIMAL(10,0)"
+                Case "Int32" : Return "INT"
+                Case "UInt16" : Return "DECIMAL(5,0)"
+                Case "Int16", "UInt16" : Return "SMALLINT"
+                Case "Boolean" : Return "BIT"
+                Case "String" : Return $"VARCHAR({If(stringLimit Is Nothing, $"{_stringLimit}", If(stringLimit = -1, "MAX", $"{stringLimit}"))})"
+                Case "Byte" : Return "DECIMAL(3,0)"
+                Case "SByte" : Return "TINYINT"
+                Case "Decimal" : Return "DECIMAL"
+                Case "Double" : Return "FLOAT"
+                Case "Single" : Return "REAL"
+                Case "DateTime" : Return "DATE"
+                Case "DateTimeOffset" : Return "DATETIMEOFFSET"
+                Case "TimeSpan" : Return "TIME"
+            End Select
             Throw New UnsupportedTypeException
             Return Nothing
         End Function

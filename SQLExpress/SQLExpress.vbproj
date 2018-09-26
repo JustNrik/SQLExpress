@@ -22,6 +22,14 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Remove="nuget.exe" />
+    <None Remove="pack.bat" />
+    <None Remove="push.bat" />
+    <None Remove="SQLExpress.1.1.2.nupkg" />
+    <None Remove="SQLExpress.nuspec" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" Version="11.0.2" />
     <PackageReference Include="System.Collections.Concurrent" Version="4.3.0" />
     <PackageReference Include="System.Collections.Immutable" Version="1.5.0" />
