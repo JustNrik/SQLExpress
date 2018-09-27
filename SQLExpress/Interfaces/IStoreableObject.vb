@@ -1,5 +1,7 @@
-﻿Namespace Interfaces
-    Public Interface IStoreableObject
+﻿''' <summary>
+''' Objects that implements this interface will be stored in the database. Remember to use Store attribute
+''' </summary>
+Public Interface IStoreableObject
         ''' <summary>
         ''' Sets the Id of the object. Used as a Primary Key for querying.
         ''' </summary>
@@ -10,5 +12,4 @@
         ''' </summary>
         ''' <returns></returns>
         ReadOnly Property Name As String
-    End Interface
-End Namespace
+End Interface

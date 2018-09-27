@@ -1,7 +1,8 @@
-﻿Namespace Attributes
-    <AttributeUsage(AttributeTargets.Property)>
-    Public NotInheritable Class NotNullAttribute
-        Inherits Attribute
+﻿''' <summary>
+''' Flags the property not to be stored as Null.
+''' </summary>
+<AttributeUsage(AttributeTargets.Property)>
+Public NotInheritable Class NotNullAttribute
+    Inherits Attribute
 
-    End Class
-End Namespace
+End Class
