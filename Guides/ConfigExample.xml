@@ -1,1 +1,6 @@
-
+<sqlconfig>
+  <server>YOUR-PC\SQLEXPRESS</server>
+  <database>DatabaseName</database>
+  <username>sa</username>
+  <password>pw123</password>
+</sqlconfig>
