@@ -2,8 +2,7 @@
 # This .gitignore file was automatically created by Microsoft(R) Visual Studio.
 ################################################################################
 
-/.vs/SQLExpress
-/SQLExpress/bin/Debug/netcoreapp2.1
-/SQLExpress/obj/Debug/netcoreapp2.1
-/SQLExpress/obj
 /SQLExpressVBTest
+/.vs/SQLExpress
+/SQLExpress/bin
+/SQLExpress/obj
