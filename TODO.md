@@ -1,11 +1,12 @@
 #TODO
 
-1) ~Add compatibility with Lists/Arrays/Etc...~ Improve compatibility with Lists/Arrays/Etc...
-2) Add compatibility with Class/Struct type properties
+1) ~Add compatibility with Lists/Arrays/Etc...~ Improve compatibility
+2) ~Add compatibility with Class/Struct type properties~ Improve compatibility
 3) Add compatibility with Foreign Keys (?)
-4) ~Add compatibility with Nullable types~ Improve compatibility with Nullable types
-5) Improve cache
-6) Improve performance
+4) ~Add compatibility with Nullable types~ Improve compatibility
+5) Add compatibility with ValueTuple
+6) Improve cache
+7) Improve performance
 
 #Possible implementation of Lists/Arrays/Etc...
 
