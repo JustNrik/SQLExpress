@@ -7,9 +7,9 @@ Public Interface IStoreableObject
         ''' </summary>
         ''' <returns></returns>
         Property Id As ULong
-        ''' <summary>
-        ''' Sets the name of the object. This name is used to create a table in the database.
-        ''' </summary>
-        ''' <returns></returns>
-        ReadOnly Property Name As String
+    ''' <summary>
+    ''' Sets the name of the object. This name is used to create a table in the database.
+    ''' </summary>
+    ''' <returns></returns>
+    ReadOnly Property TableName As String
 End Interface

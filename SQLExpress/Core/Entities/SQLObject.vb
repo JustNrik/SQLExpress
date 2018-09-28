@@ -12,7 +12,7 @@
     ''' Sets the name of the object. This name is used to create a table in the database.
     ''' </summary>
     ''' <returns></returns>
-    Public MustOverride ReadOnly Property Name As String Implements IStoreableObject.Name
+    Public MustOverride ReadOnly Property TableName As String Implements IStoreableObject.TableName
 
     Sub New(Id As ULong)
         Me.Id = Id
