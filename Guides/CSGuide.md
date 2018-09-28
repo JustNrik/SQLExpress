@@ -49,7 +49,7 @@ You must create a `Class` that inherits from `SQLObject` or implement `IStoreabl
 ```cs
 public class Person : SQLObject
 {
-    public readonly override string TableName => "persons";
+    public override readonly string TableName => "persons";
     [Store(1)]
     public string Address { get; set; }
     [Store(2)]
@@ -61,14 +61,17 @@ public class Person : SQLObject
 
 public struct Employee : IStoreableObject
 {
-    public readonly string TableName => "emplyees";
+    public readonly string TableName => "employees";
     [Store(int.MaxValue)]
     [PrimaryKey]
     [NotNull]
-    public ulong ID { get; set; }
+    public ulong Id { get; set; }
     [Store]
     public decimal Salary { get; set; }
     [Store]
     public int HoursOfWork { get; set; }
+    
+    void Employee(ulong id)
+        => Id = id;
 }
 ```
