@@ -29,3 +29,21 @@ Available on NuGet.
 `InstallDatabase`: For now, it only adds the table required to store `List<T>`, `IEnumerable<T>`, `IDictionary<TKey, TValue>`, etc...
 
 `LoadObjectCache`: Loads the Cache for the specified object.
+
+`LoadObjectsCache`: Loads the Cache for the group of objects.
+
+`CreateNewObject`: Creates a new Object in the database. LoadObject and UpdateObject will automatically create objects that don't exist so you don't actually need this at all.
+
+`LoadObject`: Loads the Object from the database, creates a new one if it doesn't exists.
+
+`UpdateObject`: Deletes and Re-add the Object in the database (it will be reworked later), creates a new Object if it doesn't exist.
+
+`RemoveObject`: Removes the Object from the database.
+
+`SendQuery`: Executes a NonQuery in the database. (Ironic, yeah)
+
+`SendScalar`: Executes a Scalar and returns the first value.
+
+`YieldData`: Executes a Reader to yield an IEnumerable of the data retrieved. Only returns the first **column**.
+
+`CheckExistence`: Checks if a Table exists.
