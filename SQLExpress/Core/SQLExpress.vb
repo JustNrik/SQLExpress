@@ -916,9 +916,9 @@ Public NotInheritable Class SQLExpressClient
         Using command As New SqlCommand($"Select* FROM _enumerablesOfT WHERE Id = {id} And PropName = '{name}'", con)
             Using r = Await command.ExecuteReaderAsync.Unawait
                 While Await r.ReadAsync.Unawait
-                            dict.Add(DirectCast(r.Item(3), TKey), DirectCast(r.Item(4), TValue))
-                        End While
-                    End Using
+                    dict.Add(DirectCast(r.Item(3), TKey), DirectCast(r.Item(4), TValue))
+                End While
+            End Using
         End Using
         Return dict
     End Function
