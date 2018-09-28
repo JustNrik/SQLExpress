@@ -8,9 +8,9 @@
     ''' Sets the priority of the property. Ordered by descending.
     ''' </summary>
     ''' <returns></returns>
-    Public Property Priority As Integer
+    Public Property Priority As Byte
 
-    Sub New(Optional priority As Integer = 0)
-            Me.Priority = priority
-        End Sub
-    End Class
+    Sub New(Optional priority As Byte = 0)
+        Me.Priority = priority
+    End Sub
+End Class

@@ -4,122 +4,46 @@ This is an Object Oriented SQL Wrapper to Save/Load data from objects.
 
 Available on NuGet.
 
-# How to Use?
+# Attributes
 
-1) Not mandatory but **strongly** suggested to add a Singleton of SQLExpressClient.
+`NotNull`: Prevents Null data to be stored. Useful to keep the integrity of the database.
 
-```cs
-IServiceProvider ServiceBuilder()
-    => new ServiceCollection().
-        AddSingleton<SQLExpressClient>().
-        // Others
-        BuildServiceProvider();
-```
-```vb
-Function ServiceBuilder() AS IServiceProvider
-    Return New ServiceCollection().
-        AddSingleton(Of SQLExpressClient).
-        ' Others
-        BuildServiceProvider()
-End Function
-```
-2) Load the config from a .JSON or .XML file
+`PrimaryKey`: Sets the primary key of the Table that references your object. If you inherit from `SQLObject`, the primary key is already set to be Id property. If you implement `IStoreableObject`, you will have to add the attribute to the Id manually. Also, keep in mind Primary Keys cannot be Null so you should add `NotNull` attribute too.
 
-```cs
-void LoadConfig()
-{
-    // JSON
-    var jString = File.ReadAllText("config.json");
-    var jObj = jObject.Parse(jString);
-    dbo.ReadConfig(jObj);
-    // XML
-    var xDoc = new XmlDocument();
-    xDoc.Load("config.xml");
-    dbo.ReadConfig(xDoc);
-}
-```
-```vb
-Sub LoadConfig()
-    ' JSON
-    Dim jString = File.ReadAllText("config.json")
-    Dim jObj = jObject.Parse(jString)
-    dbo.ReadConfig(jObj)
-    ' XML
-    Dim xDoc As New XmlDocument
-    xDoc.Load("config.xml")
-    dbo.ReadConfig(xDoc)
-End Sub
-```
+`Store`: This is the filter attribute to store properties in the database. Optionally, you can set a priority. Only for organization though.
 
-3) Set it up adding all your objects.
+`StringLength`: Sets the maximun Length of a string (VARCHAR) to be stored in the database. The maximun length you can set is 8000. You can also use -1 to store it as VARCHAR(MAX).
 
-```cs
-async Task Initialise()
-{
-    var dbo = _services.GetService<SQLExpressClient>();
-    // This is a way
-    IStoreableObject[] objs = new[] { new Person(), new Employee(), new Derp() };
-    await dbo.InitialiseObjectsAsync(objs);
-    // You can also load the Cache along with the initialisation
-    await dbo.LoadObjectCacheAsync(new Person());
-    await dbo.LoadObjectCacheAsync(new Employee());
-    await dbo.LoadObjectCacheAsync(new Derp());
-}
-```
-```vb
-Async Function Initialise() As Task
-    Dim dbo = _services.GetService(Of SQLExpressClient)
-    ' This is a way
-    Dim objs As IStoreableObject = {New Person, New Employee, New Derp}
-    Await dbo.InitialiseObjectsAsync(objs)
-    ' You can also load the Cache along with the initialisation
-    Await dbo.LoadObjectCacheAsync(New Person)
-    Await dbo.LoadObjectCacheAsync(New Employee)
-    Await dbo.LoadObjectCacheAsync(New Derp)
-End Function
-```
+# Exceptions
 
-And you're done. You can Save, Load or Create new objects as you please. They will be automaticaly stored in the database.
+`EmptyObject`: This exception will be thrown if the object doesn't have any property with Store attribute.
 
-# How do I make an Object?
+`NullProperty`: This exception will be thrown if a property with NotNull attribute has a Null value.
 
-You must create a `Class` that inherits from `SQLObject` or Implement `IStoreableObject` interface and add `Store` Attribute on the properties you want to store.  Optionally, you can provide an index to Store, this will affect the order they are organized. It doesn't really matter, just for organization.
+`UnsupportedTypeException`: This exception will be thrown if you add Store attribute to a property whose property type is unsupported. Examples: `Object`, `Func<T>`, `Stack`, etc...
 
-```cs
-public class Person : SQLObject
-{
-    public override string Name => "persons";
-    [Store(1)]
-    public string Address { get; set; }
-    [Store(2)]
-    public string TelephoneNumber { get; set; }
-    
-    void Person() { }
-    void Person(ulong id) : base(id) { }
-}
-```
-```vb
-Public Class Person
-    Inherits SQLObject
+# Methods
 
-    Public Overrides ReadOnly Property Name As String
-        Get
-            Return "persons"
-        End Get
-    End Property
-    <Store(1)>
-    Public Property Address As String
-    <Store(2)>
-    Public Property TelephoneNumber As String
+`InitialiseObjects`: Checks the existence of the provided objects, if they don't exist, their tables will be created in the database.
 
-    Sub New()
-    End Sub
+`InstallDatabase`: For now, it only adds the table required to store `List<T>`, `IEnumerable<T>`, `IDictionary<TKey, TValue>`, etc...
 
-    Sub New(id As ULong)
-        MyBase.New(id)
-    End Sub
-End Class
-```
-You can also user `NotNull` Attribute to prevent null data to be stored. Keep in mind that it will throw if you attempt to Save null data.
+`LoadObjectCache`: Loads the Cache for the specified object.
 
-**Note**: The `Name` of the object will be the name of the Table that will be stored in the database.
+`LoadObjectsCache`: Loads the Cache for the group of objects.
+
+`CreateNewObject`: Creates a new Object in the database. LoadObject and UpdateObject will automatically create objects that don't exist so you don't actually need this at all.
+
+`LoadObject`: Loads the Object from the database, creates a new one if it doesn't exists.
+
+`UpdateObject`: Deletes and Re-add the Object in the database (it will be reworked later), creates a new Object if it doesn't exist.
+
+`RemoveObject`: Removes the Object from the database.
+
+`SendQuery`: Executes a NonQuery in the database. (Ironic, yeah)
+
+`SendScalar`: Executes a Scalar and returns the first value.
+
+`YieldData`: Executes a Reader to yield an IEnumerable of the data retrieved. Only returns the first **column**.
+
+`CheckExistence`: Checks if a Table exists.

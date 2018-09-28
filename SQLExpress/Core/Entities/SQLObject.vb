@@ -6,7 +6,7 @@
     ''' <returns></returns>
     <NotNull>
     <PrimaryKey>
-    <Store(Integer.MaxValue)>
+    <Store(255)>
     Public Property Id As ULong Implements IStoreableObject.Id
     ''' <summary>
     ''' Sets the name of the object. This name is used to create a table in the database.

@@ -4,5 +4,5 @@
 
 /SQLExpressVBTest
 /.vs/SQLExpress
-/SQLExpress/bin/Debug/netcoreapp2.1
+/SQLExpress/bin
 /SQLExpress/obj
