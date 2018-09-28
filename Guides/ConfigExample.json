@@ -1,5 +1,5 @@
 {
-  "server" : "YOUR-PC\SQLEXPRESS",
+  "server" : "YOUR-PC\\SQLEXPRESS",
   "database" : "DatabaseName",
   "username" : "sa",
   "password" : "pw123"
