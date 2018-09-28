@@ -541,7 +541,7 @@ Public NotInheritable Class SQLExpressClient
     ''' Sends a query to the database.
     ''' </summary>
     ''' <param name="query"></param>
-    ''' <param name="cOn"></param>
+    ''' <param name="con"></param>
     ''' <returns></returns>
     Public Async Function SendQueryAsync(query As String, Optional con As SqlConnection = Nothing) As Task
         If con Is Nothing Then
@@ -560,7 +560,7 @@ Public NotInheritable Class SQLExpressClient
     ''' Sends a query to the database.
     ''' </summary>
     ''' <param name="query"></param>
-    ''' <param name="cOn"></param>
+    ''' <param name="con"></param>
     Public Sub SendQuery(query As String, Optional con As SqlConnection = Nothing)
         SendQueryAsync(query, con).Wait()
     End Sub
@@ -571,7 +571,7 @@ Public NotInheritable Class SQLExpressClient
     ''' </summary>
     ''' <typeparam name="T"></typeparam>
     ''' <param name="query"></param>
-    ''' <param name="cOn"></param>
+    ''' <param name="con"></param>
     ''' <returns></returns>
     Public Async Function SendScalarAsync(Of T)(query As String, Optional con As SqlConnection = Nothing) As Task(Of T)
         If con Is Nothing Then
@@ -593,7 +593,7 @@ Public NotInheritable Class SQLExpressClient
     ''' </summary>
     ''' <typeparam name="T"></typeparam>
     ''' <param name="query"></param>
-    ''' <param name="cOn"></param>
+    ''' <param name="con"></param>
     ''' <returns></returns>
     Public Function SendScalar(Of T)(query As String, Optional con As SqlConnection = Nothing) As T
         Return SendScalarAsync(Of T)(query, con).Result
@@ -605,7 +605,7 @@ Public NotInheritable Class SQLExpressClient
     ''' </summary>
     ''' <typeparam name="T"></typeparam>
     ''' <param name="query"></param>
-    ''' <param name="cOn"></param>
+    ''' <param name="con"></param>
     ''' <returns></returns>
     Public Iterator Function YieldData(Of T)(query As String, Optional con As SqlConnection = Nothing) As IEnumerable(Of T)
         If con Is Nothing Then
@@ -635,7 +635,7 @@ Public NotInheritable Class SQLExpressClient
     ''' </summary>
     ''' <typeparam name="T"></typeparam>
     ''' <param name="obj"></param>
-    ''' <param name="cOn"></param>
+    ''' <param name="con"></param>
     ''' <returns></returns>
     Public Async Function CheckExistenceAsync(Of T As {IStoreableObject})(obj As T, Optional con As SqlConnection = Nothing) As Task(Of Boolean)
         If con Is Nothing Then
@@ -664,7 +664,7 @@ Public NotInheritable Class SQLExpressClient
     ''' </summary>
     ''' <typeparam name="T"></typeparam>
     ''' <param name="id"></param>
-    ''' <param name="cOn"></param>
+    ''' <param name="con"></param>
     ''' <returns></returns>
     Public Async Function CheckExistenceAsync(Of T As {New, IStoreableObject})(id As ULong, Optional con As SqlConnection = Nothing) As Task(Of Boolean)
         Dim obj As New T With {.Id = id}
