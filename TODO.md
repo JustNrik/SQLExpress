@@ -5,7 +5,7 @@
 3) Add compatibility with Foreign Keys (?)
 4) ~Add compatibility with Nullable types~ Improve compatibility
 5) Add compatibility with ValueTuple
-6) Improve cache
+6) ~Improve cache~ keep improving cache if needed
 7) Improve performance
 
 #Possible implementation of Lists/Arrays/Etc...
