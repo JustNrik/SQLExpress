@@ -3,3 +3,7 @@
 ################################################################################
 
 /.vs/SQLExpress
+/SQLExpress/bin/Debug/netcoreapp2.1
+/SQLExpress/obj/Debug/netcoreapp2.1
+/SQLExpress/obj
+/SQLExpressVBTest
