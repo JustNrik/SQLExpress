@@ -28,6 +28,7 @@
     <None Remove="push.bat" />
     <None Remove="SQLExpress.1.1.2.nupkg" />
     <None Remove="SQLExpress.1.1.3.nupkg" />
+    <None Remove="SQLExpress.1.1.6.nupkg" />
     <None Remove="SQLExpress.nuspec" />
   </ItemGroup>
 
