@@ -15,7 +15,7 @@ End Function
 
 ```vb
 Sub LoadConfig()
-    Dim db = _services.GetService(Of SQLEXpressClient)
+    Dim db = _services.GetService(Of SQLExpressClient)
     ' JSON
     Dim jString = File.ReadAllText("config.json")
     Dim jObj = jObject.Parse(jString)
