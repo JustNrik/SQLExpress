@@ -5,9 +5,9 @@
 ```cs
 IServiceProvider ServiceBuilder()
     => new ServiceCollection().
-        AddSingleton<SQLExpressClient>().
-        // Others
-        BuildServiceProvider();
+    AddSingleton(new SQLExpressClient()).
+    // Others
+    BuildServiceProvider();
 ```
 
 2) Read the config from a XML or JSON file
