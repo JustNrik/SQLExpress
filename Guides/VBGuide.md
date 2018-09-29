@@ -75,7 +75,7 @@ Public Structure Employee
             Return "employees"
         End Get
     End Property
-    <Store(Integer.MaxValue)>
+    <Store(255)>
     <PrimaryKey>
     <NotNull>
     Public Property Id As ULong Implements IStoreableObject.Id
