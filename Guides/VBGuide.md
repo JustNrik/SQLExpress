@@ -5,7 +5,7 @@
 ```vb
 Function ServiceBuilder() As IServiceProvider
     Return New ServiceCollection().
-        AddSingleton(Of SQLExpressClient).
+        AddSingleton(New SQLExpressClient).
         ' Others
         BuildServiceProvider()
 End Function
