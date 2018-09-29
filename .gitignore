@@ -6,3 +6,8 @@
 /.vs/SQLExpress
 /SQLExpress/bin
 /SQLExpress/obj
+*.exe
+*.bat
+*.nupkg
+*.nuspec
+/SQLExpressCSTest
