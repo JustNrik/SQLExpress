@@ -235,7 +235,7 @@ Public NotInheritable Class SQLExpressClient
                     Case Else
                         Dim ids = YieldData(Of ULong)($"SELECT Id FROM {obj.TableName};", con).ToImmutableArray
                         For Each id In ids
-                            Dim instance = DirectCast(Activator.CreateInstance(GetType(T)), T) : instance.Id = id
+                            Dim instance = DirectCast(Activator.CreateInstance(obj.GetType), T) : instance.Id = id
                             Dim newObj = Await LoadObjectAsync(instance).Unawait
                             If Not Cache.ContainsKey(newObj.Id) Then Cache.TryAdd(newObj.Id, newObj) Else Cache(newObj.Id) = newObj
                         Next
@@ -256,7 +256,7 @@ Public NotInheritable Class SQLExpressClient
                     Case Else
                         Dim ids = YieldData(Of ULong)($"SELECT Id FROM {obj.TableName};", con).ToImmutableArray
                         For Each id In ids
-                            Dim instance = DirectCast(Activator.CreateInstance(GetType(T)), T) : instance.Id = id
+                            Dim instance = DirectCast(Activator.CreateInstance(obj.GetType), T) : instance.Id = id
                             Dim newObj = LoadObject(instance)
                             If Not Cache.ContainsKey(newObj.Id) Then Cache.TryAdd(newObj.Id, newObj) Else Cache(newObj.Id) = newObj
                         Next
