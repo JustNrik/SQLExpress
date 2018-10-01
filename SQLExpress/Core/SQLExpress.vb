@@ -743,7 +743,7 @@ Public NotInheritable Class SQLExpressClient
     End Function
 #End Region
 #Region "Private Methods"
-    Private Function ParseTupleType(value As Object, propType As Type, fieldNumber As Byte) As Object
+    Private Function ParseTupleType(value As Object, propType As Type, fieldNumber As Integer) As Object
         Dim stringValue = value.ToString
         Select Case propType.GenericTypeArguments(fieldNumber - 1).Name
             Case "UInt64" : Return ULong.Parse(stringValue)
@@ -767,71 +767,15 @@ Public NotInheritable Class SQLExpressClient
     End Function
 
     Private Async Function GetTuple(Of T As {IStoreableObject})(obj As T, prop As PropertyInfo, con As SqlConnection) As Task(Of Object)
+        Dim type = prop.PropertyType
         Using cmd As New SqlCommand($"SELECT* FROM _tuplesOfT WHERE Id = {obj.Id} AND PropName = '{prop.Name}'", con)
             Using r = Await cmd.ExecuteReaderAsync
                 While Await r.ReadAsync
                     Dim tupleValues As New List(Of Object)
-                    For x As Byte = 1 To 7
-                        If Not IsDBNull(r.Item($"Item{x}")) Then tupleValues.Add(ParseTupleType(r.Item($"Item{x}"), prop.PropertyType, x))
+                    For i = 1 To 7
+                        If Not IsDBNull(r.Item($"Item{i}")) Then tupleValues.Add(ParseTupleType(r.Item($"Item{i}"), type, i))
                     Next
-                    Dim typeArray As Type() = prop.PropertyType.GetGenericArguments
-                    Dim values = tupleValues.ToArray
-                    Return tupleValues.GetType.GetConstructor(typeArray)?.Invoke(values)
-#If 0 < -1 Then
-                    'If IsDBNull(r.Item("Item7")) Then
-                    '    If IsDBNull(r.Item("Item6")) Then
-                    '        If IsDBNull(r.Item("Item5")) Then
-                    '            If IsDBNull(r.Item("Item4")) Then
-                    '                If IsDBNull(r.Item("Item3")) Then
-                    '                    If IsDBNull(r.Item("Item2")) Then
-                    '                        If IsDBNull(r.Item("Item1")) Then Return Nothing Else Return New ValueTuple(Of Object)(ParseTupleType(r.Item("Item1"), prop.PropertyType, 1))
-                    '                        Tuple.Create(New Object() {1, "2"}).ToValueTuple
-                    '                    Else
-                    '                        Return New ValueTuple(Of Object, Object) _
-                    '                            (ParseTupleType(r.Item("Item1"), prop.PropertyType, 1),
-                    '                             ParseTupleType(r.Item("Item2"), prop.PropertyType, 2))
-                    '                    End If
-                    '                Else
-                    '                    Return New ValueTuple(Of Object, Object, Object) _
-                    '                        (ParseTupleType(r.Item("Item1"), prop.PropertyType, 1),
-                    '                         ParseTupleType(r.Item("Item2"), prop.PropertyType, 2),
-                    '                         ParseTupleType(r.Item("Item3"), prop.PropertyType, 3))
-                    '                End If
-                    '            Else
-                    '                Return New ValueTuple(Of Object, Object, Object, Object) _
-                    '                    (ParseTupleType(r.Item("Item1"), prop.PropertyType, 1),
-                    '                     ParseTupleType(r.Item("Item2"), prop.PropertyType, 2),
-                    '                     ParseTupleType(r.Item("Item3"), prop.PropertyType, 3),
-                    '                     ParseTupleType(r.Item("Item4"), prop.PropertyType, 4))
-                    '            End If
-                    '        Else
-                    '            Return New ValueTuple(Of Object, Object, Object, Object, Object) _
-                    '                (ParseTupleType(r.Item("Item1"), prop.PropertyType, 1),
-                    '                 ParseTupleType(r.Item("Item2"), prop.PropertyType, 2),
-                    '                 ParseTupleType(r.Item("Item3"), prop.PropertyType, 3),
-                    '                 ParseTupleType(r.Item("Item4"), prop.PropertyType, 4),
-                    '                 ParseTupleType(r.Item("Item5"), prop.PropertyType, 5))
-                    '        End If
-                    '    Else
-                    '        Return New ValueTuple(Of Object, Object, Object, Object, Object, Object) _
-                    '            (ParseTupleType(r.Item("Item1"), prop.PropertyType, 1),
-                    '             ParseTupleType(r.Item("Item2"), prop.PropertyType, 2),
-                    '             ParseTupleType(r.Item("Item3"), prop.PropertyType, 3),
-                    '             ParseTupleType(r.Item("Item4"), prop.PropertyType, 4),
-                    '             ParseTupleType(r.Item("Item5"), prop.PropertyType, 5),
-                    '             ParseTupleType(r.Item("Item6"), prop.PropertyType, 6))
-                    '    End If
-                    'Else
-                    '    Return New ValueTuple(Of Object, Object, Object, Object, Object, Object, Object) _
-                    '        (ParseTupleType(r.Item("Item1"), prop.PropertyType, 1),
-                    '         ParseTupleType(r.Item("Item2"), prop.PropertyType, 2),
-                    '         ParseTupleType(r.Item("Item3"), prop.PropertyType, 3),
-                    '         ParseTupleType(r.Item("Item4"), prop.PropertyType, 4),
-                    '         ParseTupleType(r.Item("Item5"), prop.PropertyType, 5),
-                    '         ParseTupleType(r.Item("Item6"), prop.PropertyType, 6),
-                    '         ParseTupleType(r.Item("Item7"), prop.PropertyType, 7))
-                    'End If
-#End If
+                    Return type.GetConstructor(type.GetGenericArguments)?.Invoke(tupleValues.ToArray)
                 End While
             End Using
         End Using
