@@ -190,14 +190,14 @@ Public NotInheritable Class SQLExpressClient
     ''' <typeparam name="T"></typeparam>
     ''' <param name="objs"></param>
     ''' <returns></returns>
-    Public Async Function LoadObjectCacheAsync(Of T As {IStoreableObject})(obj As T) As Task
+    Public Async Function LoadObjectCacheAsync(Of T As {New, IStoreableObject})(obj As T) As Task
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync.Unawait
-            Select Case Await SendScalarAsync(Of Integer)($"SELECT COUNT(Id) From {obj.TableName};", con).Unawait
+            Select Case Await SendScalarAsync(Of Integer)($"SELECT COUNT(Id) FROM {obj.TableName};", con).Unawait
                 Case 0 : Return
                 Case Else
                     Dim ids = YieldData(Of ULong)($"SELECT Id FROM {obj.TableName};", con).ToImmutableArray
                     For Each id In ids
-                        Dim newObj = Await LoadObjectAsync(New Dummy(id, obj.TableName)).Unawait
+                        Dim newObj = Await LoadObjectAsync(New T With {.Id = id}).Unawait
                         If Not Cache.ContainsKey(newObj.Id) Then Cache.TryAdd(newObj.Id, newObj) Else Cache(newObj.Id) = newObj
                     Next
             End Select
@@ -208,14 +208,14 @@ Public NotInheritable Class SQLExpressClient
     ''' </summary>
     ''' <typeparam name="T"></typeparam>
     ''' <param name="objs"></param>
-    Public Sub LoadObjectCache(Of T As {IStoreableObject})(obj As T)
+    Public Sub LoadObjectCache(Of T As {New, IStoreableObject})(obj As T)
         Using con As New SqlConnection(_connectionString) : con.Open()
-            Select Case SendScalar(Of Integer)($"Select COUNT(Id) From {obj.TableName};", con)
+            Select Case SendScalar(Of Integer)($"SELECT COUNT(Id) FROM {obj.TableName};", con)
                 Case 0 : Return
                 Case Else
-                    Dim ids = YieldData(Of ULong)($"Select Id FROM {obj.TableName};", con).ToImmutableArray
+                    Dim ids = YieldData(Of ULong)($"SELECT Id FROM {obj.TableName};", con).ToImmutableArray
                     For Each id In ids
-                        Dim newObj = LoadObject(New Dummy(id, obj.TableName))
+                        Dim newObj = LoadObject(New T With {.Id = id})
                         If Not Cache.ContainsKey(newObj.Id) Then Cache.TryAdd(newObj.Id, newObj)
                     Next
             End Select
@@ -230,12 +230,13 @@ Public NotInheritable Class SQLExpressClient
     Public Async Function LoadObjectsCacheAsync(Of T As {IStoreableObject})(ParamArray objs As T()) As Task
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync.Unawait
             For Each obj In objs
-                Select Case Await SendScalarAsync(Of Integer)($"SELECT COUNT(Id) From {obj.TableName};", con).Unawait
+                Select Case Await SendScalarAsync(Of Integer)($"SELECT COUNT(Id) FROM {obj.TableName};", con).Unawait
                     Case 0 : Continue For
                     Case Else
                         Dim ids = YieldData(Of ULong)($"SELECT Id FROM {obj.TableName};", con).ToImmutableArray
                         For Each id In ids
-                            Dim newObj = Await LoadObjectAsync(New Dummy(id, obj.TableName)).Unawait
+                            Dim instance = DirectCast(Activator.CreateInstance(obj.GetType), T) : instance.Id = id
+                            Dim newObj = Await LoadObjectAsync(instance).Unawait
                             If Not Cache.ContainsKey(newObj.Id) Then Cache.TryAdd(newObj.Id, newObj) Else Cache(newObj.Id) = newObj
                         Next
                 End Select
@@ -250,12 +251,13 @@ Public NotInheritable Class SQLExpressClient
     Public Sub LoadObjectsCache(Of T As {IStoreableObject})(ParamArray objs As T())
         Using con As New SqlConnection(_connectionString) : con.Open()
             For Each obj In objs
-                Select Case SendScalar(Of Integer)($"Select COUNT(Id) From {obj.TableName};", con)
+                Select Case SendScalar(Of Integer)($"SELECT COUNT(Id) FROM {obj.TableName};", con)
                     Case 0 : Continue For
                     Case Else
-                        Dim ids = YieldData(Of ULong)($"Select Id FROM {obj.TableName};", con).ToImmutableArray
+                        Dim ids = YieldData(Of ULong)($"SELECT Id FROM {obj.TableName};", con).ToImmutableArray
                         For Each id In ids
-                            Dim newObj = LoadObject(New Dummy(id, obj.TableName))
+                            Dim instance = DirectCast(Activator.CreateInstance(obj.GetType), T) : instance.Id = id
+                            Dim newObj = LoadObject(instance)
                             If Not Cache.ContainsKey(newObj.Id) Then Cache.TryAdd(newObj.Id, newObj) Else Cache(newObj.Id) = newObj
                         Next
                 End Select
@@ -358,24 +360,27 @@ Public NotInheritable Class SQLExpressClient
 
             Dim propertyNames = (From prop In properties
                                  Where Not GetType(ICollection).IsAssignableFrom(prop.PropertyType) AndAlso
-                                 Not IsClassOrStruct(prop.PropertyType)
+                                     Not IsClassOrStruct(prop.PropertyType) AndAlso
+                                     Not prop.Name.Contains("ValueTuple")
                                  Select prop.Name).ToImmutableArray
 
             If properties.Count = 0 Then Throw New EmptyObjectException
 
-            Dim collectionNames = (From prop In toLoad.GetType.GetProperties
+            Dim collectionNames = (From prop In properties
                                    Where GetType(ICollection).IsAssignableFrom(prop.PropertyType) AndAlso
-                                   Not IsClassOrStruct(prop.PropertyType)
+                                       Not IsClassOrStruct(prop.PropertyType) AndAlso
+                                       Not prop.Name.Contains("ValueTuple")
                                    Select prop.Name).ToImmutableArray
 
-            Dim types = (From prop In toLoad.GetType.GetProperties
+            Dim types = (From prop In properties
                          Where IsClassOrStruct(prop.PropertyType)).ToImmutableArray
 
-            Dim flag = Await SendScalarAsync(Of Integer)("Select COUNT(Id) FROM _enumerablesOfT", con).Unawait > 0
+            Dim flag = Await SendScalarAsync(Of Integer)("SELECT COUNT(Id) FROM _enumerablesOfT", con).Unawait > 0
+
             If collectionNames.Count > 0 AndAlso flag Then
                 Dim objs As New List(Of ICollection(Of KeyValuePair(Of Integer, String)))
                 For Each name In collectionNames
-                    objs.Add(Await GetCollection(Of Integer, String)(toLoad.Id, name, con).Unawait)
+                    objs.Add(Await GetCollectionAsync(Of Integer, String)(toLoad.Id, name, con).Unawait)
                 Next
 
                 If objs.Count > 0 Then
@@ -398,7 +403,7 @@ Public NotInheritable Class SQLExpressClient
                 Next
             End If
 
-            Using cmd As New SqlCommand($"Select* FROM {toLoad.TableName} WHERE Id = {toLoad.Id};", con)
+            Using cmd As New SqlCommand($"SELECT* FROM {toLoad.TableName} WHERE Id = {toLoad.Id};", con)
                 Using r = Await cmd.ExecuteReaderAsync.Unawait
                     While Await r.ReadAsync.Unawait
                         For x = 0 To r.FieldCount - 1
@@ -639,12 +644,12 @@ Public NotInheritable Class SQLExpressClient
     ''' <returns></returns>
     Public Async Function CheckExistenceAsync(Of T As {IStoreableObject})(obj As T, Optional con As SqlConnection = Nothing) As Task(Of Boolean)
         If con Is Nothing Then
-            Using cmd As New SqlCommand($"Select COUNT(Id) FROM {obj.TableName} WHERE Id = {obj.Id};", con)
+            Using cmd As New SqlCommand($"SELECT COUNT(Id) FROM {obj.TableName} WHERE Id = {obj.Id};", con)
                 Return DirectCast(Await cmd.ExecuteScalarAsync.Unawait, Integer) = 1
             End Using
         Else
             Using conn As New SqlConnection(_connectionString) : Await conn.OpenAsync.Unawait
-                Using cmd As New SqlCommand($"Select COUNT(Id) FROM {obj.TableName} WHERE Id = {obj.Id};", con)
+                Using cmd As New SqlCommand($"SELECT COUNT(Id) FROM {obj.TableName} WHERE Id = {obj.Id};", con)
                     Return DirectCast(Await cmd.ExecuteScalarAsync.Unawait, Integer) = 1
                 End Using
             End Using
@@ -911,9 +916,9 @@ Public NotInheritable Class SQLExpressClient
         End Select
         Throw New UnsupportedTypeException
     End Function
-    Private Async Function GetCollection(Of TKey, TValue)(id As ULong, name As String, con As SqlConnection) As Task(Of ICollection(Of KeyValuePair(Of TKey, TValue)))
+    Private Async Function GetCollectionAsync(Of TKey, TValue)(id As ULong, name As String, con As SqlConnection) As Task(Of ICollection(Of KeyValuePair(Of TKey, TValue)))
         Dim dict As New Dictionary(Of TKey, TValue)
-        Using command As New SqlCommand($"Select* FROM _enumerablesOfT WHERE Id = {id} And PropName = '{name}'", con)
+        Using command As New SqlCommand($"SELECT* FROM _enumerablesOfT WHERE Id = {id} And PropName = '{name}'", con)
             Using r = Await command.ExecuteReaderAsync.Unawait
                 While Await r.ReadAsync.Unawait
                     dict.Add(DirectCast(r.Item(3), TKey), DirectCast(r.Item(4), TValue))

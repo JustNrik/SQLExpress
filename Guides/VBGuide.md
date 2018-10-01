@@ -5,7 +5,7 @@
 ```vb
 Function ServiceBuilder() As IServiceProvider
     Return New ServiceCollection().
-        AddSingleton(Of SQLExpressClient).
+        AddSingleton(New SQLExpressClient).
         ' Others
         BuildServiceProvider()
 End Function
@@ -15,7 +15,7 @@ End Function
 
 ```vb
 Sub LoadConfig()
-    Dim db = _services.GetService(Of SQLEXpressClient)
+    Dim db = _services.GetService(Of SQLExpressClient)
     ' JSON
     Dim jString = File.ReadAllText("config.json")
     Dim jObj = jObject.Parse(jString)
@@ -75,7 +75,7 @@ Public Structure Employee
             Return "employees"
         End Get
     End Property
-    <Store(Integer.MaxValue)>
+    <Store(255)>
     <PrimaryKey>
     <NotNull>
     Public Property Id As ULong Implements IStoreableObject.Id
