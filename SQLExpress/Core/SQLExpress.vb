@@ -11,9 +11,6 @@ Imports System.Text
 Imports System.Xml
 Imports SQLExpress.Extensions
 Imports System.Collections.ObjectModel
-Imports SQLExpress
-Imports System.Threading
-Imports System.Globalization
 #End Region
 Public NotInheritable Class SQLExpressClient
 #Region "Fields"
@@ -310,7 +307,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <returns></returns>
     Public Async Function CreateNewObjectAsync(Of T As {IStoreableObject})(obj As T) As Task(Of T)
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync.Unawait
-
+#If 1 < 0 Then
             Dim properties = (From prop In obj.GetType.GetProperties
                               Where prop.GetCustomAttribute(Of StoreAttribute)(True) IsNot Nothing AndAlso
                                   Not IsClassOrStruct(prop.PropertyType) AndAlso
@@ -323,26 +320,75 @@ Public NotInheritable Class SQLExpressClient
                                      Not prop.PropertyType.Name.Contains("Tuple")
                                  Order By prop.GetCustomAttribute(Of StoreAttribute)(True).Priority Descending).ToImmutableArray
 
+            Dim collectionNames = (From prop In properties
+                                   Where GetType(ICollection).IsAssignableFrom(prop.PropertyType) AndAlso
+                                       Not IsClassOrStruct(prop.PropertyType) AndAlso
+                                       Not prop.Name.Contains("Tuple")
+                                   Select prop.Name).ToImmutableArray
+
             Dim tupleProperties = (From prop In obj.GetType.GetProperties
                                    Where prop.GetCustomAttribute(Of StoreAttribute)(True) IsNot Nothing AndAlso
                                        prop.PropertyType.Name.Contains("Tuple")
                                    Order By prop.GetCustomAttribute(Of StoreAttribute)(True).Priority Descending).ToImmutableArray
+#Else
+            Dim properties = (From prop In obj.GetType.GetProperties
+                              Where prop.GetCustomAttribute(Of StoreAttribute)(True) IsNot Nothing
+                              Order By prop.GetCustomAttribute(Of StoreAttribute)(True).Priority Descending).ToImmutableArray
 
+            Dim propertyNames = (From prop In properties
+                                 Where Not GetType(ICollection).IsAssignableFrom(prop.PropertyType) AndAlso
+                                     Not IsClassOrStruct(prop.PropertyType) AndAlso
+                                     Not prop.Name.Contains("Tuple")
+                                 Select prop.Name).ToImmutableArray
+
+            If properties.Length = 0 Then Throw New EmptyObjectException
+
+            Dim collections = (From prop In properties
+                               Where GetType(ICollection).IsAssignableFrom(prop.PropertyType) AndAlso
+                                   Not IsClassOrStruct(prop.PropertyType) AndAlso
+                                   Not prop.Name.Contains("Tuple")).ToImmutableArray
+
+            Dim collectionNames = (From collection In collections
+                                   Select collection.Name).ToImmutableArray
+
+            Dim types = (From prop In properties
+                         Where IsClassOrStruct(prop.PropertyType) AndAlso
+                             Not prop.PropertyType.Name.Contains("Tuple")).ToImmutableArray
+
+            Dim tuples = (From prop In properties
+                          Where prop.PropertyType.Name.Contains("Tuple")).ToImmutableArray
+
+            Dim flag1 = Await SendScalarAsync(Of Integer)("SELECT COUNT(Id) FROM _enumerablesOfT", con).Unawait > 0
+            Dim flag2 = Await SendScalarAsync(Of Integer)("SELECT COUNT(Id) FROM _tuplesOfT", con).Unawait > 0
+#End If
             If properties.Length = 0 Then Throw New EmptyObjectException
             If properties.Any(Function(x) x.GetCustomAttribute(Of NotNullAttribute)(True) IsNot Nothing AndAlso
                                   x.GetValue(obj) Is Nothing) Then Throw New NullPropertyException
 
-            Await SendQueryAsync(Await BuildInsertAsync(obj, properties.Except(objProperties).Except(tupleProperties), con).Unawait, con).Unawait
+            Await SendQueryAsync(Await BuildInsertAsync(obj, properties.Except(collections).Except(tuples), con).Unawait, con).Unawait
 
-            If objProperties.Length > 0 Then
-                For Each prop In objProperties
+            If types.Length > 0 Then
+                For Each prop In types
                     Dim propObj = TryCast(prop.GetValue(obj), IStoreableObject)
                     If propObj IsNot Nothing AndAlso Not Await CheckObjectExistenceAsync(propObj, con).Unawait Then Await SendQueryAsync(BuildTable(propObj), con).Unawait
                 Next
             End If
 
-            If tupleProperties.Length > 0 Then
-                For Each prop In tupleProperties
+            If collectionNames.Length > 0 Then
+                Dim objs As New List(Of ICollection(Of KeyValuePair(Of Integer, String)))
+                For Each name In collectionNames
+                    objs.Add(Await GetCollectionAsync(obj.Id, name, con).Unawait)
+                Next
+
+                If objs.Count > 0 Then
+                    For x = 0 To collectionNames.Length - 1
+                        obj.GetType.GetProperty(collectionNames(x)).SetValue(obj, ParseObject(objs(x), obj, collectionNames(x)))
+                    Next
+                End If
+            End If
+
+            If tuples.Length > 0 Then
+                For Each prop In tuples
                     Await SendQueryAsync(BuildTupleTable(prop, obj), con)
                 Next
             End If
@@ -428,9 +474,7 @@ Public NotInheritable Class SQLExpressClient
             Dim tuples = (From prop In properties
                           Where prop.PropertyType.Name.Contains("Tuple")).ToImmutableArray
 
-            Dim flag = Await SendScalarAsync(Of Integer)("SELECT COUNT(Id) FROM _enumerablesOfT", con).Unawait > 0
-
-            If collectionNames.Length > 0 AndAlso flag Then
+            If collectionNames.Length > 0 Then
                 Dim objs As New List(Of ICollection(Of KeyValuePair(Of Integer, String)))
                 For Each name In collectionNames
                     objs.Add(Await GetCollectionAsync(toLoad.Id, name, con).Unawait)
@@ -801,12 +845,14 @@ Public NotInheritable Class SQLExpressClient
         If Type.IsPrimitive Then Return False
         If Type Is GetType(Decimal) OrElse
            Type Is GetType(Date) OrElse
+           Type Is GetType(String) OrElse
            Type Is GetType(DateTimeOffset) OrElse
            Type Is GetType(TimeSpan) OrElse
            Type Is GetType([Enum]) Then Return False
 
-        Return Not Type.IsClass
+        Return Type.IsClass
     End Function
+
 
     Private Function ParseObject([Enum] As ICollection(Of KeyValuePair(Of Integer, String)), obj As IStoreableObject, name As String) As Object
         Dim propType = obj.GetType.GetProperty(name).PropertyType
