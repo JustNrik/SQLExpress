@@ -12,6 +12,8 @@ Imports System.Xml
 Imports SQLExpress.Extensions
 Imports System.Collections.ObjectModel
 Imports SQLExpress
+Imports System.Threading
+Imports System.Globalization
 #End Region
 Public NotInheritable Class SQLExpressClient
 #Region "Fields"
@@ -155,8 +157,8 @@ Public NotInheritable Class SQLExpressClient
 #Region "InstallDatabase"
     Public Async Function InstallDatabaseAsync() As Task
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync.Unawait
-            If Await SendScalarAsync(Of Integer)($"IF OBJECT_ID('_enumerablesOfT') IS NULL SELECT 0" & vbCrLf &
-                                                  "ELSE SELECT 1;", con).Unawait = 0 Then
+            If Await SendScalarAsync(Of Integer)("IF OBJECT_ID('_enumerablesOfT') IS NULL SELECT 0" & vbCrLf &
+                                                 "ELSE SELECT 1;", con).Unawait = 0 Then
 
                 Await SendQueryAsync("CREATE TABLE _enumerablesOfT (" & vbCrLf &
                                      "    Id BIGINT NOT NULL," & vbCrLf &
@@ -164,14 +166,31 @@ Public NotInheritable Class SQLExpressClient
                                      "    PropName VARCHAR(50) NOT NULL," & vbCrLf &
                                      "    RawKey INT NOT NULL," & vbCrLf &
                                      "    RawValue VARCHAR(50));", con).Unawait
+
+            End If
+
+            If Await SendScalarAsync(Of Integer)("IF OBJECT_ID('_tuplesOfT') IS NULL SELECT 0" & vbCrLf &
+                                                 "ELSE SELECT 1;", con).Unawait = 0 Then
+
+                Await SendQueryAsync("CREATE TABLE _tuplesOfT (" & vbCrLf &
+                                     "    Id BIGINT NOT NULL," & vbCrLf &
+                                     "    ObjName VARCHAR(50) NOT NULL," & vbCrLf &
+                                     "    PropName VARCHAR(50) NOT NULL," & vbCrLf &
+                                     "    Item1 VARCHAR(50)," & vbCrLf &
+                                     "    Item2 VARCHAR(50)," & vbCrLf &
+                                     "    Item3 VARCHAR(50)," & vbCrLf &
+                                     "    Item4 VARCHAR(50)," & vbCrLf &
+                                     "    Item5 VARCHAR(50)," & vbCrLf &
+                                     "    Item6 VARCHAR(50)," & vbCrLf &
+                                     "    Item7 VARCHAR(50));", con).Unawait
             End If
         End Using
     End Function
 
     Public Sub InstallDatabase()
         Using con As New SqlConnection(_connectionString) : con.Open()
-            If SendScalar(Of Integer)($"If OBJECT_ID('_enumerablesOfT') IS NULL SELECT 0" & vbCrLf &
-                                       "ELSE SELECT 1;", con) = 0 Then
+            If SendScalar(Of Integer)("IF OBJECT_ID('_enumerablesOfT') IS NULL SELECT 0" & vbCrLf &
+                                      "ELSE SELECT 1;", con) = 0 Then
 
                 SendQuery("CREATE TABLE _enumerablesOfT (" & vbCrLf &
                           "    Id BIGINT NOT NULL," & vbCrLf &
@@ -179,6 +198,23 @@ Public NotInheritable Class SQLExpressClient
                           "    PropName VARCHAR(50) NOT NULL," & vbCrLf &
                           "    RawKey INT NOT NULL," & vbCrLf &
                           "    RawValue VARCHAR(50));", con)
+
+            End If
+
+            If SendScalar(Of Integer)("IF OBJECT_ID('_tuplesOfT') IS NULL SELECT 0" & vbCrLf &
+                                      "ELSE SELECT 1;", con) = 0 Then
+
+                SendQuery("CREATE TABLE _tuplesOfT (" & vbCrLf &
+                          "    Id BIGINT NOT NULL," & vbCrLf &
+                          "    ObjName VARCHAR(50) NOT NULL," & vbCrLf &
+                          "    PropName VARCHAR(50) NOT NULL," & vbCrLf &
+                          "    Item1 VARCHAR(50)," & vbCrLf &
+                          "    Item2 VARCHAR(50)," & vbCrLf &
+                          "    Item3 VARCHAR(50)," & vbCrLf &
+                          "    Item4 VARCHAR(50)," & vbCrLf &
+                          "    Item5 VARCHAR(50)," & vbCrLf &
+                          "    Item6 VARCHAR(50)," & vbCrLf &
+                          "    Item7 VARCHAR(50),", con)
             End If
         End Using
     End Sub
@@ -277,24 +313,37 @@ Public NotInheritable Class SQLExpressClient
 
             Dim properties = (From prop In obj.GetType.GetProperties
                               Where prop.GetCustomAttribute(Of StoreAttribute)(True) IsNot Nothing AndAlso
-                                      Not IsClassOrStruct(prop.PropertyType)
-                              Order By prop.GetCustomAttribute(Of StoreAttribute)(True).Priority Descending)
+                                  Not IsClassOrStruct(prop.PropertyType) AndAlso
+                                  Not prop.PropertyType.Name.Contains("Tuple")
+                              Order By prop.GetCustomAttribute(Of StoreAttribute)(True).Priority Descending).ToImmutableArray
 
             Dim objProperties = (From prop In obj.GetType.GetProperties
                                  Where prop.GetCustomAttribute(Of StoreAttribute)(True) IsNot Nothing AndAlso
-                                         IsClassOrStruct(prop.PropertyType)
-                                 Order By prop.GetCustomAttribute(Of StoreAttribute)(True).Priority Descending)
+                                     IsClassOrStruct(prop.PropertyType) AndAlso
+                                     Not prop.PropertyType.Name.Contains("Tuple")
+                                 Order By prop.GetCustomAttribute(Of StoreAttribute)(True).Priority Descending).ToImmutableArray
 
-            If properties.Count = 0 Then Throw New EmptyObjectException
+            Dim tupleProperties = (From prop In obj.GetType.GetProperties
+                                   Where prop.GetCustomAttribute(Of StoreAttribute)(True) IsNot Nothing AndAlso
+                                       prop.PropertyType.Name.Contains("Tuple")
+                                   Order By prop.GetCustomAttribute(Of StoreAttribute)(True).Priority Descending).ToImmutableArray
+
+            If properties.Length = 0 Then Throw New EmptyObjectException
             If properties.Any(Function(x) x.GetCustomAttribute(Of NotNullAttribute)(True) IsNot Nothing AndAlso
                                   x.GetValue(obj) Is Nothing) Then Throw New NullPropertyException
 
-            Await SendQueryAsync(Await BuildInsertAsync(obj, properties.Except(objProperties), con).Unawait, con).Unawait
+            Await SendQueryAsync(Await BuildInsertAsync(obj, properties.Except(objProperties).Except(tupleProperties), con).Unawait, con).Unawait
 
-            If objProperties.Count > 0 Then
+            If objProperties.Length > 0 Then
                 For Each prop In objProperties
                     Dim propObj = TryCast(prop.GetValue(obj), IStoreableObject)
-                    If propObj IsNot Nothing Then If Not Await CheckObjectExistenceAsync(propObj, con).Unawait Then Await SendQueryAsync(BuildTable(propObj), con).Unawait
+                    If propObj IsNot Nothing AndAlso Not Await CheckObjectExistenceAsync(propObj, con).Unawait Then Await SendQueryAsync(BuildTable(propObj), con).Unawait
+                Next
+            End If
+
+            If tupleProperties.Length > 0 Then
+                For Each prop In tupleProperties
+                    Await SendQueryAsync(BuildTupleTable(prop, obj), con)
                 Next
             End If
 
@@ -361,33 +410,35 @@ Public NotInheritable Class SQLExpressClient
             Dim propertyNames = (From prop In properties
                                  Where Not GetType(ICollection).IsAssignableFrom(prop.PropertyType) AndAlso
                                      Not IsClassOrStruct(prop.PropertyType) AndAlso
-                                     Not prop.Name.Contains("ValueTuple")
+                                     Not prop.Name.Contains("Tuple")
                                  Select prop.Name).ToImmutableArray
 
-            If properties.Count = 0 Then Throw New EmptyObjectException
+            If properties.Length = 0 Then Throw New EmptyObjectException
 
             Dim collectionNames = (From prop In properties
                                    Where GetType(ICollection).IsAssignableFrom(prop.PropertyType) AndAlso
                                        Not IsClassOrStruct(prop.PropertyType) AndAlso
-                                       Not prop.Name.Contains("ValueTuple")
+                                       Not prop.Name.Contains("Tuple")
                                    Select prop.Name).ToImmutableArray
 
             Dim types = (From prop In properties
-                         Where IsClassOrStruct(prop.PropertyType)).ToImmutableArray
+                         Where IsClassOrStruct(prop.PropertyType) AndAlso
+                             Not prop.PropertyType.Name.Contains("Tuple")).ToImmutableArray
+
+            Dim tuples = (From prop In properties
+                          Where prop.PropertyType.Name.Contains("Tuple")).ToImmutableArray
 
             Dim flag = Await SendScalarAsync(Of Integer)("SELECT COUNT(Id) FROM _enumerablesOfT", con).Unawait > 0
 
-            If collectionNames.Count > 0 AndAlso flag Then
+            If collectionNames.Length > 0 AndAlso flag Then
                 Dim objs As New List(Of ICollection(Of KeyValuePair(Of Integer, String)))
                 For Each name In collectionNames
-                    objs.Add(Await GetCollectionAsync(Of Integer, String)(toLoad.Id, name, con).Unawait)
+                    objs.Add(Await GetCollectionAsync(toLoad.Id, name, con).Unawait)
                 Next
 
                 If objs.Count > 0 Then
-                    Dim index = 0
-                    For Each name In collectionNames
-                        toLoad.GetType.GetProperty(name).SetValue(toLoad, ParseObject(objs(index), toLoad, name))
-                        index += 1
+                    For x = 0 To collectionNames.Length - 1
+                        toLoad.GetType.GetProperty(collectionNames(x)).SetValue(toLoad, ParseObject(objs(x), toLoad, collectionNames(x)))
                     Next
                 End If
             End If
@@ -400,6 +451,12 @@ Public NotInheritable Class SQLExpressClient
                         Dim loadObj = Await LoadObjectAsync(refObj).Unawait
                         toLoad.GetType.GetProperty(obj.Name).SetValue(toLoad, refObj)
                     End If
+                Next
+            End If
+
+            If tuples.Count > 0 Then
+                For Each tuple In tuples
+                    tuple.SetValue(toLoad, Await GetTuple(toLoad, tuple, con))
                 Next
             End If
 
@@ -618,7 +675,7 @@ Public NotInheritable Class SQLExpressClient
                 Using cmd As New SqlCommand(query, conn)
                     Using r = cmd.ExecuteReader
                         While r.Read
-                            Yield If(IsDBNull(r.Item(0)), Nothing, (If(TypeOf r.Item(0) Is T, DirectCast(r.Item(0), T), CType(r.Item(0), T))))
+                            Yield If(IsDBNull(r.Item(0)), Nothing, If(TypeOf r.Item(0) Is T, DirectCast(r.Item(0), T), CType(r.Item(0), T)))
                         End While
                     End Using
                 End Using
@@ -627,7 +684,7 @@ Public NotInheritable Class SQLExpressClient
             Using cmd As New SqlCommand(query, con)
                 Using r = cmd.ExecuteReader
                     While r.Read
-                        Yield If(IsDBNull(r.Item(0)), Nothing, (If(TypeOf r.Item(0) Is T, DirectCast(r.Item(0), T), CType(r.Item(0), T))))
+                        Yield If(IsDBNull(r.Item(0)), Nothing, If(TypeOf r.Item(0) Is T, DirectCast(r.Item(0), T), CType(r.Item(0), T)))
                     End While
                 End Using
             End Using
@@ -687,15 +744,70 @@ Public NotInheritable Class SQLExpressClient
     End Function
 #End Region
 #Region "Private Methods"
+    Private Function ParseTupleType(value As Object, propType As Type, fieldNumber As Integer) As Object
+        Dim stringValue = value.ToString
+        Select Case propType.GenericTypeArguments(fieldNumber - 1).Name
+            Case "UInt64" : Return ULong.Parse(stringValue)
+            Case "Int64" : Return Long.Parse(stringValue)
+            Case "UInt32" : Return UInteger.Parse(stringValue)
+            Case "Int32" : Return Integer.Parse(stringValue)
+            Case "UInt16" : Return UShort.Parse(stringValue)
+            Case "Int16", "UInt16" : Return Short.Parse(stringValue)
+            Case "Boolean" : Return Boolean.Parse(stringValue)
+            Case "String" : Return stringValue
+            Case "Byte" : Return Byte.Parse(stringValue)
+            Case "SByte" : Return SByte.Parse(stringValue)
+            Case "Decimal" : Return Decimal.Parse(stringValue)
+            Case "Double" : Return Double.Parse(stringValue)
+            Case "Single" : Return Single.Parse(stringValue)
+            Case "DateTime" : Return Date.Parse(stringValue)
+            Case "DateTimeOffset" : Return DateTimeOffset.Parse(stringValue)
+            Case "TimeSpan" : Return TimeSpan.Parse(stringValue)
+        End Select
+        Return Nothing
+    End Function
+
+    Private Async Function GetTuple(Of T As {IStoreableObject})(obj As T, prop As PropertyInfo, con As SqlConnection) As Task(Of Object)
+        Dim type = prop.PropertyType
+        Using cmd As New SqlCommand($"SELECT* FROM _tuplesOfT WHERE Id = {obj.Id} AND PropName = '{prop.Name}'", con)
+            Using r = Await cmd.ExecuteReaderAsync
+                While Await r.ReadAsync
+                    Dim tupleValues As New List(Of Object)
+                    For i = 1 To 7
+                        If Not IsDBNull(r.Item($"Item{i}")) Then tupleValues.Add(ParseTupleType(r.Item($"Item{i}"), type, i))
+                    Next
+                    Return type.GetConstructor(type.GetGenericArguments)?.Invoke(tupleValues.ToArray)
+                End While
+            End Using
+        End Using
+        Return Nothing
+    End Function
+
+    Private Function BuildTupleTable(Of T As {IStoreableObject})(prop As PropertyInfo, obj As T) As String
+        Dim sb As New StringBuilder
+        Dim pivot = Integer.Parse(prop.PropertyType.Name.Substring(prop.PropertyType.Name.IndexOf("`"c) + 1))
+        With sb
+            .AppendLine($"INSERT INTO _tuplesOfT (Id, ObjName, PropName, Item1, Item2, Item3, Item4, Item5, Item6, Item7)")
+            .Append($"VALUES ({obj.Id}, '{obj.TableName}', '{prop.Name}'")
+            For x = 1 To 7
+                .Append(If(x <= pivot, $", '{ParseCulture(prop.GetValue(obj).GetType.GetField($"Item{x}").GetValue(prop.GetValue(obj)))}'", ", NULL"))
+            Next
+            .Append(");")
+        End With
+        Return sb.ToString
+    End Function
+
     Private Function IsClassOrStruct(Type As Type) As Boolean
         If Type.IsPrimitive Then Return False
         If Type Is GetType(Decimal) OrElse
            Type Is GetType(Date) OrElse
            Type Is GetType(DateTimeOffset) OrElse
-           Type Is GetType(TimeSpan) Then Return False
+           Type Is GetType(TimeSpan) OrElse
+           Type Is GetType([Enum]) Then Return False
 
         Return Not Type.IsClass
     End Function
+
     Private Function ParseObject([Enum] As ICollection(Of KeyValuePair(Of Integer, String)), obj As IStoreableObject, name As String) As Object
         Dim propType = obj.GetType.GetProperty(name).PropertyType
         Dim type = GetNullableTypeName(If(propType.GenericTypeArguments.Count = 0, propType, propType.GetGenericArguments.First))
@@ -916,40 +1028,46 @@ Public NotInheritable Class SQLExpressClient
         End Select
         Throw New UnsupportedTypeException
     End Function
-    Private Async Function GetCollectionAsync(Of TKey, TValue)(id As ULong, name As String, con As SqlConnection) As Task(Of ICollection(Of KeyValuePair(Of TKey, TValue)))
-        Dim dict As New Dictionary(Of TKey, TValue)
+
+    Private Function ParseCulture(obj As Object) As String
+        If TypeOf obj Is Decimal OrElse
+           TypeOf obj Is Double OrElse
+           TypeOf obj Is Single Then Return obj.ToString.Replace(","c, "."c)
+
+        Return obj.ToString
+    End Function
+
+    Private Async Function GetCollectionAsync(id As ULong, name As String, con As SqlConnection) As Task(Of ICollection(Of KeyValuePair(Of Integer, String)))
+        Dim dict As New Dictionary(Of Integer, String)
         Using command As New SqlCommand($"SELECT* FROM _enumerablesOfT WHERE Id = {id} And PropName = '{name}'", con)
             Using r = Await command.ExecuteReaderAsync.Unawait
                 While Await r.ReadAsync.Unawait
-                    dict.Add(DirectCast(r.Item(3), TKey), DirectCast(r.Item(4), TValue))
+                    dict.Add(DirectCast(r.Item(3), Integer), ParseCulture(r.Item(4)))
                 End While
             End Using
         End Using
         Return dict
     End Function
+
     Private Async Function BuildInsertAsync(Of T As {IStoreableObject})(obj As T, properties As IEnumerable(Of PropertyInfo), con As SqlConnection) As Task(Of String)
         Dim collections = properties.Where(Function(x) GetType(ICollection).IsAssignableFrom(x.PropertyType)).ToImmutableArray
-        If collections.Count > 0 Then
+        If collections.Length > 0 Then
             For Each collection In collections
                 Await InsertCollectionAsync(obj, collection, con).Unawait
             Next
         End If
 
-        Dim props = If(collections.Count > 0, properties.Except(collections), properties).ToImmutableArray
-
+        Dim props = If(collections.Length > 0, properties.Except(collections), properties).ToImmutableArray
         Return $"INSERT INTO {obj.TableName} ({props.Select(Function(x) x.Name).Aggregate(Function(x, y) x & ", " & y)})" & vbCrLf &
-           $"VALUES ({props.Select(Function(x) $"{GetSqlValue(x, obj)}").Aggregate(Function(x, y) x & ", " & y)});"
+               $"VALUES ({props.Select(Function(x) GetSqlValue(x, obj)).Aggregate(Function(x, y) $"{x}, {y}")});"
     End Function
     Private Function InsertCollectionAsync(Of T As {IStoreableObject})(obj As T, [Property] As PropertyInfo, con As SqlConnection) As Task
         Dim generic = [Property].GetValue(obj)
         If generic Is Nothing Then Return Task.CompletedTask
-        Dim enumerable = GetGenericEnumerable(generic).ToImmutableArray
-        Dim index = 0
         Dim values = DirectCast(generic, ICollection)
-        For Each element In values
+        For x = 0 To values.Count - 1
             SendQuery($"INSERT INTO _enumerablesOfT (Id, ObjName, PropName, RawKey, RawValue)" & vbCrLf &
-                  $"VALUES ({obj.Id}, '{obj.TableName}', '{[Property].Name}', {index}, '{element}');", con)
-            index += 1
+                      $"VALUES ({obj.Id}, '{obj.TableName}', '{[Property].Name}', {x}, '{ParseCulture(values(x))}');", con)
         Next
         Return Task.CompletedTask
     End Function
@@ -967,8 +1085,9 @@ Public NotInheritable Class SQLExpressClient
 
             Dim properties = (From prop In obj.GetType.GetProperties
                               Where prop.GetCustomAttribute(Of StoreAttribute)(True) IsNot Nothing AndAlso
-                              Not GetType(ICollection).IsAssignableFrom(prop.PropertyType) AndAlso
-                              Not IsClassOrStruct(prop.PropertyType)
+                                  Not GetType(ICollection).IsAssignableFrom(prop.PropertyType) AndAlso
+                                  Not IsClassOrStruct(prop.PropertyType) AndAlso
+                                  Not prop.PropertyType.Name.Contains("Tuple")
                               Order By prop.GetCustomAttribute(Of StoreAttribute)(True).Priority Descending).ToImmutableArray
 
             If properties.Count = 0 Then Throw New EmptyObjectException
@@ -1006,7 +1125,7 @@ Public NotInheritable Class SQLExpressClient
             Case "Decimal" : Return "DECIMAL"
             Case "Double" : Return "FLOAT"
             Case "Single" : Return "REAL"
-            Case "DateTime" : Return "DATE"
+            Case "DateTime" : Return "DATETIME2"
             Case "DateTimeOffset" : Return "DATETIMEOFFSET"
             Case "TimeSpan" : Return "TIME"
         End Select
@@ -1021,13 +1140,19 @@ Public NotInheritable Class SQLExpressClient
               propType.Name)
     End Function
 
+    Private Function SanitizeDate(obj As Object) As String
+        Dim fixedDate = obj.ToString.Replace("/"c, "-"c).Replace("a.m.", "AM").Replace("p.m.", "PM")
+        Return $"'{fixedDate}'"
+    End Function
+
     Private Function GetSqlValue(Of T As {IStoreableObject})([Property] As PropertyInfo, ByRef obj As T) As String
         Dim value = [Property].GetValue(obj)
         Dim typeName = ParseType(GetNullableTypeName([Property].PropertyType))
 
         Select Case typeName
-            Case "DECIMAL(20,0)", "BIGINT", "DECIMAL(10,0)", "SMALLINT", "DECIMAL(5,0)", "INT", "DECIMAL(3,0)", "TINYINT", "DECIMAL", "FLOAT", "REAL" : Return $"{If(value, "NULL")}"
-            Case "DATE", "TIME", "DATETIMEOFFSET", $"VARCHAR({If([Property].GetCustomAttribute(Of StringLengthAttribute)(True)?.Length, _stringLimit)})" : Return $"'{If(value, "NULL")}'"
+            Case "DECIMAL(20,0)", "BIGINT", "DECIMAL(10,0)", "SMALLINT", "DECIMAL(5,0)", "INT", "DECIMAL(3,0)", "TINYINT", "DECIMAL", "FLOAT", "REAL" : Return $"{If(ParseCulture(value), "NULL")}"
+            Case "DATETIME2", "TIME", "DATETIMEOFFSET" : Return $"{If(value Is Nothing, "NULL", SanitizeDate(value))}"
+            Case $"VARCHAR({If([Property].GetCustomAttribute(Of StringLengthAttribute)(True)?.Length, _stringLimit)})" : Return $"'{If(value, "NULL")}'"
             Case "BIT" : Return $"{If(DirectCast(value, Boolean), 1, 0)}"
             Case Else : Throw New UnsupportedTypeException
         End Select
