@@ -437,7 +437,7 @@ Public NotInheritable Class SQLExpressClient
                 Next
 
                 If objs.Count > 0 Then
-                    For x = 0 To collectionNames.Length
+                    For x = 0 To collectionNames.Length - 1
                         toLoad.GetType.GetProperty(collectionNames(x)).SetValue(toLoad, ParseObject(objs(x), toLoad, collectionNames(x)))
                     Next
                 End If
@@ -1030,9 +1030,6 @@ Public NotInheritable Class SQLExpressClient
     End Function
 
     Private Function ParseCulture(obj As Object) As String
-#If DEBUG Then
-        Console.WriteLine(obj.ToString)
-#End If
         If TypeOf obj Is Decimal OrElse
            TypeOf obj Is Double OrElse
            TypeOf obj Is Single Then Return obj.ToString.Replace(","c, "."c)
@@ -1061,22 +1058,14 @@ Public NotInheritable Class SQLExpressClient
         End If
 
         Dim props = If(collections.Length > 0, properties.Except(collections), properties).ToImmutableArray
-#If DEBUG Then
-        Dim result = $"INSERT INTO {obj.TableName} ({props.Select(Function(x) x.Name).Aggregate(Function(x, y) x & ", " & y)})" & vbCrLf &
-                     $"VALUES ({props.Select(Function(x) GetSqlValue(x, obj)).Aggregate(Function(x, y) $"{x}, {y}")});"
-        Console.WriteLine(result)
-        Return result
-#Else
         Return $"INSERT INTO {obj.TableName} ({props.Select(Function(x) x.Name).Aggregate(Function(x, y) x & ", " & y)})" & vbCrLf &
-               $"VALUES ({props.Select(Function(x) $"{GetSqlValue(x, obj)}").Aggregate(Function(x, y) $"{ParseCulture(x)}, {ParseCulture(y)}")});"
-#End If
+               $"VALUES ({props.Select(Function(x) GetSqlValue(x, obj)).Aggregate(Function(x, y) $"{x}, {y}")});"
     End Function
     Private Function InsertCollectionAsync(Of T As {IStoreableObject})(obj As T, [Property] As PropertyInfo, con As SqlConnection) As Task
         Dim generic = [Property].GetValue(obj)
         If generic Is Nothing Then Return Task.CompletedTask
-        Dim enumerable = GetGenericEnumerable(generic).ToImmutableArray
         Dim values = DirectCast(generic, ICollection)
-        For x = 0 To values.Count
+        For x = 0 To values.Count - 1
             SendQuery($"INSERT INTO _enumerablesOfT (Id, ObjName, PropName, RawKey, RawValue)" & vbCrLf &
                       $"VALUES ({obj.Id}, '{obj.TableName}', '{[Property].Name}', {x}, '{ParseCulture(values(x))}');", con)
         Next
