@@ -265,16 +265,25 @@ Public NotInheritable Class SQLExpressClient
     Public Async Function LoadObjectsCacheAsync(Of T As {IStoreableObject})(ParamArray objs As T()) As Task
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync.ConfigureAwait(False)
             For Each obj In objs
-                Select Case Await SendScalarAsync(Of Integer)($"SELECT COUNT(Id) FROM {obj.TableName};", con).ConfigureAwait(False)
-                    Case 0 : Continue For
-                    Case Else
-                        Dim ids = YieldData(Of ULong)($"SELECT Id FROM {obj.TableName};", con).ToImmutableArray
-                        For Each id In ids
-                            Dim instance = DirectCast(Activator.CreateInstance(obj.GetType), T) : instance.Id = id
-                            Dim newObj = Await LoadObjectAsync(instance).ConfigureAwait(False)
-                            If Not Cache.ContainsKey(newObj.Id) Then Cache.TryAdd(newObj.Id, newObj) Else Cache(newObj.Id) = newObj
-                        Next
-                End Select
+                If Await SendScalarAsync(Of Integer)($"SELECT COUNT(Id) FROM {obj.TableName};", con).ConfigureAwait(False) > 0 Then
+                    Dim ids = YieldData(Of ULong)($"SELECT Id FROM {obj.TableName};", con).ToImmutableArray
+                    For Each id In ids
+                        Dim instance = DirectCast(Activator.CreateInstance(obj.GetType), T) : instance.Id = id
+                        Dim newObj = Await LoadObjectAsync(instance).ConfigureAwait(False)
+                        If Not Cache.ContainsKey(newObj.Id) Then Cache.TryAdd(newObj.Id, newObj) Else Cache(newObj.Id) = newObj
+                    Next
+                End If
+            Next
+            ' Handling for objects with Collection properties, they need to be reloaded.
+            For Each obj In objs.Where(Function(x) x.GetType.GetProperties.Any(Function(y) IsCollection(y))).ToImmutableArray
+                If Await SendScalarAsync(Of Integer)($"SELECT COUNT(Id) FROM {obj.TableName};", con).ConfigureAwait(False) > 0 Then
+                    Dim ids = YieldData(Of ULong)($"SELECT Id FROM {obj.TableName};", con).ToImmutableArray
+                    For Each id In ids
+                        Dim instance = DirectCast(Activator.CreateInstance(obj.GetType), T) : instance.Id = id
+                        Dim newObj = Await LoadObjectAsync(instance).ConfigureAwait(False)
+                        If Not Cache.ContainsKey(newObj.Id) Then Cache.TryAdd(newObj.Id, newObj) Else Cache(newObj.Id) = newObj
+                    Next
+                End If
             Next
         End Using
     End Function
