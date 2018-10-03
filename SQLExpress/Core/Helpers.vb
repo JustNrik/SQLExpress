@@ -3,7 +3,6 @@ Imports System.Convert
 Imports System.Data.SqlClient
 Imports System.Reflection
 Imports System.Runtime.CompilerServices
-Imports System.Text
 
 Friend Module Helpers
 
@@ -126,20 +125,6 @@ Friend Module Helpers
         End If
 
         Return value
-    End Function
-
-    Friend Function BuildTupleTable(Of T As {IStoreableObject})(prop As PropertyInfo, obj As T) As String
-        Dim sb As New StringBuilder
-        Dim pivot = Integer.Parse(prop.PropertyType.Name.Substring(prop.PropertyType.Name.IndexOf("`"c) + 1))
-        With sb
-            .AppendLine($"INSERT INTO _tuplesOfT (Id, ObjName, PropName, Item1, Item2, Item3, Item4, Item5, Item6, Item7)")
-            .Append($"VALUES ({obj.Id}, '{obj.TableName}', '{prop.Name}'")
-            For x = 1 To 7
-                .Append(If(x <= pivot, $", '{ParseSQLDecimal(prop.GetValue(obj).GetType.GetField($"Item{x}").GetValue(prop.GetValue(obj)))}'", ", NULL"))
-            Next
-            .Append(");")
-        End With
-        Return sb.ToString
     End Function
 
     Friend Function FixSQLDate(obj As Object) As String
