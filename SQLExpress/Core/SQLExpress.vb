@@ -341,7 +341,7 @@ Public NotInheritable Class SQLExpressClient
 
                 If objs.Count > 0 Then
                     For x = 0 To collectionNames.Length - 1
-                        obj.GetType.GetProperty(collectionNames(x)).SetValue(obj, Await ParseObjectAsync(objs(x), obj, collectionNames(x)).ConfigureAwait(False))
+                        obj.GetType.GetProperty(collectionNames(x)).SetValue(obj, ParseObject(objs(x), obj, collectionNames(x)))
                     Next
                 End If
             End If
@@ -430,7 +430,13 @@ Public NotInheritable Class SQLExpressClient
 
                 If objs.Count > 0 Then
                     For x = 0 To collectionNames.Length - 1
-                        toLoad.GetType.GetProperty(collectionNames(x)).SetValue(toLoad, Await ParseObjectAsync(objs(x), toLoad, collectionNames(x)).ConfigureAwait(False))
+                        Dim [property] = toLoad.GetType.GetProperty(collectionNames(x))
+                        Dim type = [property].PropertyType.GenericTypeArguments.FirstOrDefault
+                        If IsClassOrStruct(type) Then
+
+                        Else
+                            [property].SetValue(toLoad, ParseObject(objs(x), toLoad, collectionNames(x)))
+                        End If
                     Next
                 End If
             End If
@@ -736,7 +742,7 @@ Public NotInheritable Class SQLExpressClient
     End Function
 #End Region
 #Region "Private Methods"
-    Private Async Function ParseObjectAsync([Enum] As ICollection(Of KeyValuePair(Of Integer, String)), obj As IStoreableObject, name As String) As Task(Of Object)
+    Private Function ParseObject([Enum] As ICollection(Of KeyValuePair(Of Integer, String)), obj As IStoreableObject, name As String) As Object
         Dim [property] = obj.GetType.GetProperty(name)
         Dim propType = [property].PropertyType
         Dim type = GetNullableTypeName(If(propType.GenericTypeArguments.Count = 0, propType, propType.GetGenericArguments.First))

@@ -1,6 +1,4 @@
-﻿Imports SQLExpress.Extensions
-Imports System.Collections.Immutable
-Imports System.Collections.ObjectModel
+﻿Imports System.Collections.Immutable
 Imports System.Convert
 Imports System.Data.SqlClient
 Imports System.Reflection
@@ -33,10 +31,14 @@ Friend Module Helpers
     Friend Function IsClassOrStruct([property] As PropertyInfo) As Boolean
         Dim type = [property].PropertyType
 
-        If type.IsPrimitive Then Return False
-
         If IsCollection([property]) OrElse
            IsTuple([property]) Then Return False
+
+        Return IsClassOrStruct(Type)
+    End Function
+
+    Friend Function IsClassOrStruct(type As Type) As Boolean
+        If type.IsPrimitive Then Return False
 
         If type Is GetType(Decimal) OrElse
            type Is GetType(String) OrElse
