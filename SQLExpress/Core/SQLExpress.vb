@@ -325,7 +325,8 @@ Public NotInheritable Class SQLExpressClient
             If types.Length > 0 Then
                 For Each prop In types
                     Dim propObj = TryCast(prop.GetValue(obj), IStoreableObject)
-                    If propObj IsNot Nothing AndAlso Not Await CheckObjectExistenceAsync(propObj, con).ConfigureAwait(False) Then Await SendQueryAsync(BuildTable(propObj), con).ConfigureAwait(False)
+                    If propObj IsNot Nothing AndAlso Not Await CheckObjectExistenceAsync(propObj, con).ConfigureAwait(False) Then _
+                        Await SendQueryAsync(BuildTable(propObj), con).ConfigureAwait(False)
                 Next
             End If
 
