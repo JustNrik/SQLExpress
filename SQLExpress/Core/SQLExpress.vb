@@ -984,7 +984,7 @@ Public NotInheritable Class SQLExpressClient
         Return sb.ToString
     End Function
 
-    Private Function BuildInsert(Of T As {IStoreableObject})(obj As T, properties As IEnumerable(Of PropertyInfo), con As SqlConnection) As String
+    Private Function BuildInsert(Of T As {IStoreableObject})(obj As T, properties As ImmutableArray(Of PropertyInfo), con As SqlConnection) As String
         Return $"INSERT INTO {obj.TableName} ({properties.Select(Function(x) x.Name).Aggregate(Function(x, y) $"{x}, {y}")})" & vbCrLf &
                $"VALUES ({properties.Select(Function(x) GetSqlValue(x, obj)).Aggregate(Function(x, y) $"{x}, {y}")});"
     End Function

@@ -24,7 +24,7 @@ Friend Module Helpers
     End Function
 
     Friend Function IsCollection([property] As PropertyInfo) As Boolean
-        Return GetType(ICollection).IsAssignableFrom([property].PropertyType)
+        Return GetType(IEnumerable).IsAssignableFrom([property].PropertyType) AndAlso Not GetType(String).IsAssignableFrom([property].PropertyType)
     End Function
 
     Friend Function IsClassOrStruct([property] As PropertyInfo) As Boolean
@@ -46,7 +46,7 @@ Friend Module Helpers
            type Is GetType(TimeSpan) OrElse
            type Is GetType([Enum]) Then Return False
 
-        Return type.IsClass
+        Return type.IsClass OrElse type.IsValueType
     End Function
 
     Friend Function ParseTupleType(value As Object, propType As Type, fieldNumber As Integer) As Object
