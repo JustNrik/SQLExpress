@@ -75,7 +75,9 @@ Public NotInheritable Class SQLExpressClient
     ''' Creates a new instance of this class
     ''' </summary>
     Sub New(Optional StringLimit As Integer = 20)
-        _stringLimit = StringLimit
+        If StringLimit = -1 OrElse StringLimit > 0 Then _
+        _stringLimit = StringLimit Else _
+        Throw New ArgumentException("Length must be between 1 and 8000, or -1 if you want to use MAX length instead")
     End Sub
     ''' <summary>
     ''' Provide the full connection string.
@@ -83,7 +85,9 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="ConnectionString"></param>
     Sub New(ConnectionString As String, Optional StringLimit As Integer = 20)
         _connectionString = ConnectionString
-        _stringLimit = StringLimit
+        If StringLimit = -1 OrElse StringLimit > 0 Then _
+        _stringLimit = StringLimit Else _
+        Throw New ArgumentException("Length must be between 1 and 8000, or -1 if you want to use MAX length instead")
     End Sub
     ''' <summary>
     ''' Reads the config from a XML Document. You must load the XMlDocument before using this method.
@@ -91,7 +95,9 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="xmlConfig"></param>
     Sub New(xmlConfig As XmlDocument, Optional StringLimit As Integer = 20)
         ReadConfig(xmlConfig)
-        _stringLimit = StringLimit
+        If StringLimit = -1 OrElse StringLimit > 0 Then _
+        _stringLimit = StringLimit Else _
+        Throw New ArgumentException("Length must be between 1 and 8000, or -1 if you want to use MAX length instead")
     End Sub
     ''' <summary>
     ''' Reads the config from a JSON file. You must parse the JObject before using this method.
@@ -99,7 +105,9 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="jConfig"></param>
     Sub New(jConfig As JObject, Optional StringLimit As Integer = 20)
         ReadConfig(jConfig)
-        _stringLimit = StringLimit
+        If StringLimit = -1 OrElse StringLimit > 0 Then _
+        _stringLimit = StringLimit Else _
+        Throw New ArgumentException("Length must be between 1 and 8000, or -1 if you want to use MAX length instead")
     End Sub
 #End Region
 #Region "Config"
@@ -136,7 +144,8 @@ Public NotInheritable Class SQLExpressClient
     Public Async Function InitialiseObjectsAsync(Of T As {IStoreableObject})(ParamArray objs As T()) As Task
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync.ConfigureAwait(False)
             For Each obj In objs
-                If Not Await CheckObjectExistenceAsync(obj, con).ConfigureAwait(False) Then Await SendQueryAsync(BuildTable(obj), con).ConfigureAwait(False)
+                If Not Await CheckObjectExistenceAsync(obj, con).ConfigureAwait(False) Then _
+                    Await SendQueryAsync(BuildTable(obj), con).ConfigureAwait(False)
             Next
         End Using
     End Function
@@ -227,15 +236,13 @@ Public NotInheritable Class SQLExpressClient
     ''' <returns></returns>
     Public Async Function LoadObjectCacheAsync(Of T As {New, IStoreableObject})(obj As T) As Task
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync.ConfigureAwait(False)
-            Select Case Await SendScalarAsync(Of Integer)($"SELECT COUNT(Id) FROM {obj.TableName};", con).ConfigureAwait(False)
-                Case 0 : Return
-                Case Else
-                    Dim ids = YieldData(Of ULong)($"SELECT Id FROM {obj.TableName};", con).ToImmutableArray
-                    For Each id In ids
-                        Dim newObj = Await LoadObjectAsync(New T With {.Id = id}).ConfigureAwait(False)
-                        If Not Cache.ContainsKey(newObj.Id) Then Cache.TryAdd(newObj.Id, newObj) Else Cache(newObj.Id) = newObj
-                    Next
-            End Select
+            If Await SendScalarAsync(Of Integer)($"SELECT COUNT(Id) FROM {obj.TableName};", con).ConfigureAwait(False) > 0 Then
+                Dim ids = YieldData(Of ULong)($"SELECT Id FROM {obj.TableName};", con).ToImmutableArray
+                For Each id In ids
+                    Dim newObj = Await LoadObjectAsync(New T With {.Id = id}).ConfigureAwait(False)
+                    If Not Cache.ContainsKey(newObj.Id) Then Cache.TryAdd(newObj.Id, newObj) Else Cache(newObj.Id) = newObj
+                Next
+            End If
         End Using
     End Function
     ''' <summary>
@@ -245,15 +252,13 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="objs"></param>
     Public Sub LoadObjectCache(Of T As {New, IStoreableObject})(obj As T)
         Using con As New SqlConnection(_connectionString) : con.Open()
-            Select Case SendScalar(Of Integer)($"SELECT COUNT(Id) FROM {obj.TableName};", con)
-                Case 0 : Return
-                Case Else
-                    Dim ids = YieldData(Of ULong)($"SELECT Id FROM {obj.TableName};", con).ToImmutableArray
-                    For Each id In ids
-                        Dim newObj = LoadObject(New T With {.Id = id})
-                        If Not Cache.ContainsKey(newObj.Id) Then Cache.TryAdd(newObj.Id, newObj)
-                    Next
-            End Select
+            If SendScalar(Of Integer)($"SELECT COUNT(Id) FROM {obj.TableName};", con) > 0 Then
+                Dim ids = YieldData(Of ULong)($"SELECT Id FROM {obj.TableName};", con).ToImmutableArray
+                For Each id In ids
+                    Dim newObj = LoadObject(New T With {.Id = id})
+                    If Not Cache.ContainsKey(newObj.Id) Then Cache.TryAdd(newObj.Id, newObj)
+                Next
+            End If
         End Using
     End Sub
     ''' <summary>
@@ -295,16 +300,14 @@ Public NotInheritable Class SQLExpressClient
     Public Sub LoadObjectsCache(Of T As {IStoreableObject})(ParamArray objs As T())
         Using con As New SqlConnection(_connectionString) : con.Open()
             For Each obj In objs
-                Select Case SendScalar(Of Integer)($"SELECT COUNT(Id) FROM {obj.TableName};", con)
-                    Case 0 : Continue For
-                    Case Else
-                        Dim ids = YieldData(Of ULong)($"SELECT Id FROM {obj.TableName};", con).ToImmutableArray
-                        For Each id In ids
-                            Dim instance = DirectCast(Activator.CreateInstance(obj.GetType), T) : instance.Id = id
-                            Dim newObj = LoadObject(instance)
-                            If Not Cache.ContainsKey(newObj.Id) Then Cache.TryAdd(newObj.Id, newObj) Else Cache(newObj.Id) = newObj
-                        Next
-                End Select
+                If SendScalar(Of Integer)($"SELECT COUNT(Id) FROM {obj.TableName};", con) > 0 Then
+                    Dim ids = YieldData(Of ULong)($"SELECT Id FROM {obj.TableName};", con).ToImmutableArray
+                    For Each id In ids
+                        Dim instance = DirectCast(Activator.CreateInstance(obj.GetType), T) : instance.Id = id
+                        Dim newObj = LoadObject(instance)
+                        If Not Cache.ContainsKey(newObj.Id) Then Cache.TryAdd(newObj.Id, newObj) Else Cache(newObj.Id) = newObj
+                    Next
+                End If
             Next
         End Using
     End Sub
@@ -463,7 +466,8 @@ Public NotInheritable Class SQLExpressClient
                 Using r = Await cmd.ExecuteReaderAsync.ConfigureAwait(False)
                     While Await r.ReadAsync.ConfigureAwait(False)
                         For x = 0 To r.FieldCount - 1
-                            toLoad.GetType.GetProperty(primitivesName(x)).SetValue(toLoad, UnsignedFix(toLoad, primitivesName(x), r.Item(primitivesName(x))))
+                            toLoad.GetType.GetProperty(primitivesName(x)).
+                                SetValue(toLoad, UnsignedFix(toLoad, primitivesName(x), r.Item(primitivesName(x))))
                         Next
                     End While
                     Return toLoad
@@ -561,6 +565,7 @@ Public NotInheritable Class SQLExpressClient
             If Not Await CheckExistenceAsync(toRemove, con).ConfigureAwait(False) Then Return
             Await SendQueryAsync($"DELETE FROM {toRemove.TableName} WHERE Id = {toRemove.Id};", con).ConfigureAwait(False)
             Await SendQueryAsync($"DELETE FROM _enumerablesOfT WHERE Id = {toRemove.Id};", con).ConfigureAwait(False)
+            Await SendQueryAsync($"DELETE FROM _tuplesOfT WHERE Id = {toRemove.Id};", con).ConfigureAwait(False)
             If Cache.ContainsKey(toRemove.Id) Then Cache.TryRemove(toRemove.Id, Nothing)
         End Using
     End Function
@@ -584,6 +589,7 @@ Public NotInheritable Class SQLExpressClient
             If Not CheckExistence(toRemove, con) Then Return
             SendQuery($"DELETE FROM {toRemove.TableName} WHERE Id = {toRemove.Id}", con)
             SendQuery($"DELETE FROM _enumerablesOfT WHERE Id = {toRemove.Id}", con)
+            SendQuery($"DELETE FROM _tuplesOfT WHERE Id = {toRemove.Id}", con)
             If Cache.ContainsKey(toRemove.Id) Then Cache.TryRemove(toRemove.Id, Nothing)
         End Using
     End Sub
@@ -974,7 +980,7 @@ Public NotInheritable Class SQLExpressClient
 
             If properties.Count = 0 Then Throw New EmptyObjectException
             For Each [Property] In properties
-                .Append($"{[Property].Name} {ParseType(GetNullableTypeName([Property].PropertyType), [Property].GetCustomAttribute(Of StringLengthAttribute)(True)?.Length)} ")
+                .Append($"{[Property].Name} {ParseType([Property])} ")
                 .Append($"{If([Property].GetCustomAttribute(Of NotNullAttribute)(True) IsNot Nothing, "NOT NULL", "")} ")
                 .Append($"{If([Property].GetCustomAttribute(Of PrimaryKeyAttribute)(True) IsNot Nothing, "PRIMARY KEY", "")}")
 
@@ -1037,8 +1043,8 @@ Public NotInheritable Class SQLExpressClient
                                         "ELSE SELECT 1;", con) = 1
     End Function
 
-    Private Function ParseType(typeName As String, Optional stringLimit As Integer? = Nothing) As String
-        Select Case typeName
+    Private Function ParseType([property] As PropertyInfo, Optional stringLimit As Integer? = Nothing) As String
+        Select Case GetNullableTypeName([property].PropertyType)
             Case "UInt64" : Return "DECIMAL(20,0)"
             Case "Int64" : Return "BIGINT"
             Case "UInt32" : Return "DECIMAL(10,0)"
@@ -1046,7 +1052,7 @@ Public NotInheritable Class SQLExpressClient
             Case "UInt16" : Return "DECIMAL(5,0)"
             Case "Int16", "UInt16" : Return "SMALLINT"
             Case "Boolean" : Return "BIT"
-            Case "String" : Return $"VARCHAR({If(stringLimit Is Nothing, $"{_stringLimit}", If(stringLimit = -1, "MAX", $"{stringLimit}"))})"
+            Case "String" : Return $"VARCHAR({GetVarcharLength([property])})"
             Case "Byte" : Return "DECIMAL(3,0)"
             Case "SByte" : Return "TINYINT"
             Case "Decimal" : Return "DECIMAL"
@@ -1056,23 +1062,31 @@ Public NotInheritable Class SQLExpressClient
             Case "DateTimeOffset" : Return "DATETIMEOFFSET"
             Case "TimeSpan" : Return "TIME"
         End Select
-        Console.WriteLine(typeName)
         Throw New UnsupportedTypeException
         Return Nothing
     End Function
 
-    Private Function GetSqlValue(Of T As {IStoreableObject})([Property] As PropertyInfo, ByRef obj As T) As String
-        Dim value = [Property].GetValue(obj)
-        Dim typeName = ParseType(GetNullableTypeName([Property].PropertyType))
+    Private Function GetSqlValue(Of T As {IStoreableObject})([property] As PropertyInfo, ByRef obj As T) As String
+        Dim value = [property].GetValue(obj)
+        Dim typeName = ParseType([property])
 
         Select Case typeName
             Case "DECIMAL(20,0)", "BIGINT", "DECIMAL(10,0)", "SMALLINT", "DECIMAL(5,0)", "INT", "DECIMAL(3,0)", "TINYINT", "DECIMAL", "FLOAT", "REAL" : Return $"{If(ParseSQLDecimal(value), "NULL")}"
             Case "DATETIME2", "TIME", "DATETIMEOFFSET" : Return $"{If(value Is Nothing, "NULL", FixSQLDate(value))}"
-            Case $"VARCHAR({If([Property].GetCustomAttribute(Of StringLengthAttribute)(True)?.Length, _stringLimit)})" : Return $"'{If(value, "NULL")}'"
+            Case $"VARCHAR({GetVarcharLength([property])})" : Return $"'{If(value, "NULL")}'"
             Case "BIT" : Return $"{If(DirectCast(value, Boolean), 1, 0)}"
             Case Else : Throw New UnsupportedTypeException
         End Select
         Return Nothing
+    End Function
+
+    Private Function GetVarcharLength([Property] As PropertyInfo) As String
+        If [Property].GetCustomAttribute(Of StringLengthAttribute)(True) IsNot Nothing Then
+            Dim length = [Property].GetCustomAttribute(Of StringLengthAttribute)(True).Length
+            Return If(length = -1, "MAX", $"{length}")
+        Else
+            Return $"{_stringLimit}"
+        End If
     End Function
 
 #End Region
