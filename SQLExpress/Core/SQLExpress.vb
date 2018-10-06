@@ -21,7 +21,7 @@ Public NotInheritable Class SQLExpressClient
     Private _password As String
     Private _enumFlag As Boolean
     Private _tupleFlag As Boolean
-    Private ReadOnly _stringLimit As Integer
+    Private _stringLimit As Integer = -1
 #End Region
 #Region "Properties"
     Public Property Cache As New ConcurrentDictionary(Of ULong, IStoreableObject)
@@ -75,9 +75,11 @@ Public NotInheritable Class SQLExpressClient
     ''' Creates a new instance of this class
     ''' </summary>
     Sub New(Optional StringLimit As Integer = 20)
-        If StringLimit = -1 OrElse StringLimit > 0 Then _
-        _stringLimit = StringLimit Else _
-        Throw New ArgumentException("Length must be between 1 and 8000, or -1 if you want to use MAX length instead")
+        Select Case StringLimit
+            Case -1
+            Case 1 To 8000 : _stringLimit = StringLimit
+            Case Else : Throw New ArgumentException("Length must be between 1 and 8000, or -1 if you want to use MAX length instead")
+        End Select
     End Sub
     ''' <summary>
     ''' Provide the full connection string.
@@ -85,9 +87,11 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="ConnectionString"></param>
     Sub New(ConnectionString As String, Optional StringLimit As Integer = 20)
         _connectionString = ConnectionString
-        If StringLimit = -1 OrElse StringLimit > 0 Then _
-        _stringLimit = StringLimit Else _
-        Throw New ArgumentException("Length must be between 1 and 8000, or -1 if you want to use MAX length instead")
+        Select Case StringLimit
+            Case -1
+            Case 1 To 8000 : _stringLimit = StringLimit
+            Case Else : Throw New ArgumentException("Length must be between 1 and 8000, or -1 if you want to use MAX length instead")
+        End Select
     End Sub
     ''' <summary>
     ''' Reads the config from a XML Document. You must load the XMlDocument before using this method.
@@ -95,9 +99,11 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="xmlConfig"></param>
     Sub New(xmlConfig As XmlDocument, Optional StringLimit As Integer = 20)
         ReadConfig(xmlConfig)
-        If StringLimit = -1 OrElse StringLimit > 0 Then _
-        _stringLimit = StringLimit Else _
-        Throw New ArgumentException("Length must be between 1 and 8000, or -1 if you want to use MAX length instead")
+        Select Case StringLimit
+            Case -1
+            Case 1 To 8000 : _stringLimit = StringLimit
+            Case Else : Throw New ArgumentException("Length must be between 1 and 8000, or -1 if you want to use MAX length instead")
+        End Select
     End Sub
     ''' <summary>
     ''' Reads the config from a JSON file. You must parse the JObject before using this method.
@@ -105,9 +111,11 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="jConfig"></param>
     Sub New(jConfig As JObject, Optional StringLimit As Integer = 20)
         ReadConfig(jConfig)
-        If StringLimit = -1 OrElse StringLimit > 0 Then _
-        _stringLimit = StringLimit Else _
-        Throw New ArgumentException("Length must be between 1 and 8000, or -1 if you want to use MAX length instead")
+        Select Case StringLimit
+            Case -1
+            Case 1 To 8000 : _stringLimit = StringLimit
+            Case Else : Throw New ArgumentException("Length must be between 1 and 8000, or -1 if you want to use MAX length instead")
+        End Select
     End Sub
 #End Region
 #Region "Config"
