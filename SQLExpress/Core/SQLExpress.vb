@@ -151,7 +151,7 @@ Public NotInheritable Class SQLExpressClient
             For Each obj In objs
                 If Not Await CheckObjectExistenceAsync(obj, con).ConfigureAwait(False) Then
                     Await SendQueryAsync(BuildTable(obj), con).ConfigureAwait(False)
-                    Dim innerObjs = GetTypes(obj.GetType).OfType(Of T).Distinct.ToImmutableArray
+                    Dim innerObjs = GetTypes(obj).OfType(Of T).Distinct.ToImmutableArray
                     For Each innerObj In innerObjs
                         If Not Await CheckObjectExistenceAsync(innerObj, con) Then _
                             Await SendQueryAsync(BuildTable(innerObj), con).ConfigureAwait(False)
@@ -170,7 +170,7 @@ Public NotInheritable Class SQLExpressClient
             For Each obj In objs
                 If Not CheckObjectExistence(obj, con) Then
                     SendQuery(BuildTable(obj), con)
-                    Dim innerObjs = GetTypes(obj.GetType).OfType(Of T).Distinct.ToImmutableArray
+                    Dim innerObjs = GetTypes(obj).OfType(Of T).Distinct.ToImmutableArray
                     For Each innerObj In innerObjs
                         If Not CheckObjectExistence(innerObj, con) Then SendQuery(BuildTable(innerObj), con)
                     Next
@@ -255,6 +255,8 @@ Public NotInheritable Class SQLExpressClient
         If Not _useCache Then Throw New CacheDisabledException
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync.ConfigureAwait(False)
             If Await SendScalarAsync(Of Integer)($"SELECT COUNT(Id) FROM {obj.TableName};", con).ConfigureAwait(False) > 0 Then
+                Dim types = GetTypes(obj).Distinct.ToArray
+                If types.Length > 0 Then Await LoadObjectsCacheAsync(types)
                 Dim ids = YieldData(Of ULong)($"SELECT Id FROM {obj.TableName};", con).ToImmutableArray
                 For Each id In ids
                     Dim newObj = Await LoadObjectAsync(New T With {.Id = id}).ConfigureAwait(False)
@@ -273,6 +275,8 @@ Public NotInheritable Class SQLExpressClient
         Using con As New SqlConnection(_connectionString) : con.Open()
             If SendScalar(Of Integer)($"SELECT COUNT(Id) FROM {obj.TableName};", con) > 0 Then
                 Dim ids = YieldData(Of ULong)($"SELECT Id FROM {obj.TableName};", con).ToImmutableArray
+                Dim types = GetTypes(obj).Cast(Of IStoreableObject).Distinct.ToArray
+                If types.Length > 0 Then LoadObjectsCache(types)
                 For Each id In ids
                     Dim newObj = LoadObject(New T With {.Id = id})
                     If Not Cache.ContainsKey(newObj.Id) Then Cache.TryAdd(newObj.Id, newObj)
@@ -291,11 +295,11 @@ Public NotInheritable Class SQLExpressClient
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync.ConfigureAwait(False)
             For Each obj In objs
                 If Await SendScalarAsync(Of Integer)($"SELECT COUNT(Id) FROM {obj.TableName};", con).ConfigureAwait(False) > 0 Then
-                    Dim types = GetTypes(obj.GetType).OfType(Of T).Distinct.ToArray
+                    Dim types = GetTypes(obj).Cast(Of IStoreableObject).Distinct.ToArray
                     If types.Length > 0 Then Await LoadObjectsCacheAsync(types)
                     Dim ids = YieldData(Of ULong)($"SELECT Id FROM {obj.TableName};", con).ToImmutableArray
                     For Each id In ids
-                        Dim instance = DirectCast(Activator.CreateInstance(obj.GetType, id), T)
+                        Dim instance = DirectCast(Activator.CreateInstance(obj.GetType), T) : instance.Id = id
                         Dim newObj = Await LoadObjectAsync(instance).ConfigureAwait(False)
                         If Not Cache.ContainsKey(newObj.Id) Then Cache.TryAdd(newObj.Id, newObj) Else Cache(newObj.Id) = newObj
                     Next
@@ -313,7 +317,7 @@ Public NotInheritable Class SQLExpressClient
         Using con As New SqlConnection(_connectionString) : con.Open()
             For Each obj In objs
                 If SendScalar(Of Integer)($"SELECT COUNT(Id) FROM {obj.TableName};", con) > 0 Then
-                    Dim types = GetTypes(obj.GetType).OfType(Of T).Distinct.ToArray
+                    Dim types = GetTypes(obj).Cast(Of IStoreableObject).Distinct.ToArray
                     If types.Length > 0 Then LoadObjectsCache(types)
                     Dim ids = YieldData(Of ULong)($"SELECT Id FROM {obj.TableName};", con).ToImmutableArray
                     For Each id In ids
@@ -370,6 +374,7 @@ Public NotInheritable Class SQLExpressClient
 
             Dim newObj = Await LoadObjectAsync(obj).ConfigureAwait(False)
             If Not Cache.ContainsKey(newObj.Id) Then Cache.TryAdd(newObj.Id, newObj) Else Cache(newObj.Id) = newObj
+            Log(newObj, LogType.Create)
             Return newObj
         End Using
     End Function
@@ -380,8 +385,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="id"></param>
     ''' <returns></returns>
     Public Async Function CreateNewObjectAsync(Of T As {New, IStoreableObject})(id As ULong) As Task(Of T)
-        Dim obj As New T With {.Id = id}
-        Return Await CreateNewObjectAsync(obj)
+        Return Await CreateNewObjectAsync(New T With {.Id = id})
     End Function
     ''' <summary>
     ''' Adds a new Object to the database. Throws when fail.
@@ -398,9 +402,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="id"></param>
     ''' <returns></returns>
     Public Function CreateNewObject(Of T As {New, IStoreableObject})(id As ULong) As T
-        Dim obj As New T With {.Id = id}
-        CreateNewObject(obj)
-        Return obj
+        Return CreateNewObjectAsync(New T With {.Id = id}).Result
     End Function
     ''' <summary>
     ''' Adds a new Object to the database. Throws when fail.
@@ -409,7 +411,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="id"></param>
     ''' <param name="obj"></param>
     Public Sub CreateNewObject(Of T As {New, IStoreableObject})(id As ULong, <Out> ByRef obj As T)
-        obj = CreateNewObject(Of T)(id)
+        obj = CreateNewObjectAsync(Of T)(id).Result
     End Sub
 #End Region
 #Region "LoadObject"
@@ -484,6 +486,7 @@ Public NotInheritable Class SQLExpressClient
                                 SetValue(toLoad, UnsignedFix(toLoad, primitivesName(x), r.Item(primitivesName(x))))
                         Next
                     End While
+                    Log(toLoad, LogType.Load)
                     Return toLoad
                 End Using
             End Using
@@ -496,9 +499,9 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="id"></param>
     ''' <returns></returns>
     Public Async Function LoadObjectAsync(Of T As {New, IStoreableObject})(id As ULong) As Task(Of T)
-        If Cache.ContainsKey(id) Then Return DirectCast(Cache(id), T)
-        Dim toLoad As New T With {.Id = id}
-        Return Await LoadObjectAsync(toLoad).ConfigureAwait(False)
+        Return If(_useCache AndAlso Cache.ContainsKey(id),
+            DirectCast(Cache(id), T),
+            Await LoadObjectAsync(New T With {.Id = id}).ConfigureAwait(False))
     End Function
     ''' <summary>
     ''' Loads the Object, creates a new one if it doesn't exists
@@ -507,8 +510,9 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="obj"></param>
     ''' <returns></returns>
     Public Function LoadObject(Of T As {IStoreableObject})(obj As T) As T
-        If Cache.ContainsKey(obj.Id) Then Return DirectCast(Cache(obj.Id), T)
-        Return LoadObjectAsync(obj).Result
+        Return If(_useCache AndAlso Cache.ContainsKey(obj.Id),
+            DirectCast(Cache(obj.Id), T),
+            LoadObjectAsync(obj).Result)
     End Function
     ''' <summary>
     ''' Loads the Object, creates a new one if it doesn't exists
@@ -517,18 +521,15 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="id"></param>
     ''' <returns></returns>
     Public Function LoadObject(Of T As {New, IStoreableObject})(id As ULong) As T
-        If Cache.ContainsKey(id) Then Return DirectCast(Cache(id), T)
-        Dim newObj As New T With {.Id = id}
-        Return LoadObject(newObj)
+        Return If(_useCache AndAlso Cache.ContainsKey(id),
+            DirectCast(Cache(id), T),
+            LoadObjectAsync(New T With {.Id = id}).Result)
     End Function
 
     Public Sub LoadObject(Of T As {New, IStoreableObject})(id As ULong, <Out> ByRef obj As T)
-        If Cache.ContainsKey(id) Then
-            obj = DirectCast(Cache(id), T)
-        Else
-            Dim newObj As New T With {.Id = id}
-            obj = LoadObject(newObj)
-        End If
+        If _useCache AndAlso Cache.ContainsKey(id) Then _
+            obj = DirectCast(Cache(id), T) Else _
+            obj = LoadObjectAsync(New T With {.Id = id}).Result
     End Sub
 #End Region
 #Region "UpdateObject"
@@ -542,10 +543,12 @@ Public NotInheritable Class SQLExpressClient
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync.ConfigureAwait(False)
             If Not Await CheckExistenceAsync(toUpdate, con).ConfigureAwait(False) Then
                 Return Await CreateNewObjectAsync(toUpdate).ConfigureAwait(False)
+                Log(toUpdate, LogType.Update)
             Else
                 Await RemoveObjectAsync(toUpdate).ConfigureAwait(False)
                 Dim newObj = Await CreateNewObjectAsync(toUpdate).ConfigureAwait(False)
                 If Cache.ContainsKey(toUpdate.Id) Then Cache(toUpdate.Id) = toUpdate Else Cache.TryAdd(toUpdate.Id, toUpdate)
+                Log(newObj, LogType.Update)
                 Return newObj
             End If
         End Using
@@ -556,15 +559,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <typeparam name="T"></typeparam>
     ''' <param name="toUpdate"></param>
     Public Sub UpdateObject(Of T As {New, IStoreableObject})(ByRef toUpdate As T)
-        Using con As New SqlConnection(_connectionString) : con.Open()
-            If Not CheckExistence(toUpdate, con) Then
-                CreateNewObject(toUpdate)
-            Else
-                RemoveObject(toUpdate)
-                CreateNewObject(toUpdate)
-                If Cache.ContainsKey(toUpdate.Id) Then Cache(toUpdate.Id) = toUpdate Else Cache.TryAdd(toUpdate.Id, toUpdate)
-            End If
-        End Using
+        toUpdate = UpdateObjectAsync(toUpdate).Result
     End Sub
 #End Region
 #Region "RemoveObject"
@@ -581,6 +576,7 @@ Public NotInheritable Class SQLExpressClient
             Await SendQueryAsync($"DELETE FROM _enumerablesOfT WHERE Id = {toRemove.Id};", con).ConfigureAwait(False)
             Await SendQueryAsync($"DELETE FROM _tuplesOfT WHERE Id = {toRemove.Id};", con).ConfigureAwait(False)
             If Cache.ContainsKey(toRemove.Id) Then Cache.TryRemove(toRemove.Id, Nothing)
+            Log(toRemove, LogType.Delete)
         End Using
     End Function
     ''' <summary>
@@ -590,8 +586,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="id"></param>
     ''' <returns></returns>
     Public Async Function RemoveObjectAsync(Of T As {New, IStoreableObject})(id As ULong) As Task
-        Dim toRemove As New T With {.Id = id}
-        Await RemoveObjectAsync(toRemove).ConfigureAwait(False)
+        Await RemoveObjectAsync(New T With {.Id = id}).ConfigureAwait(False)
     End Function
     ''' <summary>
     ''' Removes the Object if exists
@@ -599,13 +594,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <typeparam name="T"></typeparam>
     ''' <param name="toRemove"></param>
     Public Sub RemoveObject(Of T As {IStoreableObject})(toRemove As T)
-        Using con As New SqlConnection(_connectionString) : con.Open()
-            If Not CheckExistence(toRemove, con) Then Return
-            SendQuery($"DELETE FROM {toRemove.TableName} WHERE Id = {toRemove.Id}", con)
-            SendQuery($"DELETE FROM _enumerablesOfT WHERE Id = {toRemove.Id}", con)
-            SendQuery($"DELETE FROM _tuplesOfT WHERE Id = {toRemove.Id}", con)
-            If Cache.ContainsKey(toRemove.Id) Then Cache.TryRemove(toRemove.Id, Nothing)
-        End Using
+        RemoveObjectAsync(toRemove).Wait()
     End Sub
     ''' <summary>
     ''' Removes the Object if exists
@@ -613,8 +602,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <typeparam name="T"></typeparam>
     ''' <param name="id"></param>
     Public Sub RemoveObject(Of T As {New, IStoreableObject})(id As ULong)
-        Dim toRemove As New T With {.Id = id}
-        RemoveObject(toRemove)
+        RemoveObjectAsync(New T With {.Id = id}).Wait()
     End Sub
 #End Region
 #Region "SendQuery"
@@ -1101,6 +1089,29 @@ Public NotInheritable Class SQLExpressClient
         Else
             Return $"{_stringLimit}"
         End If
+    End Function
+
+    Private Sub Log(Of T As {IStoreableObject})(obj As T, logSource As LogType)
+        If Not _logEnable Then Return
+        Console.ForegroundColor = ConsoleColor.Green
+        Console.Write($"[{Date.UtcNow}] [{CenterLog(logSource),-6}] ")
+        Console.ResetColor()
+        Console.WriteLine($"The object of {obj.TableName} ({obj.Id}) has been {logSource}")
+    End Sub
+
+    Private Enum LogType
+        Create
+        Load
+        Update
+        Delete
+    End Enum
+
+    Private Function CenterLog(logSource As LogType) As String
+        Return If(logSource = LogType.Load, " Load ", $"{logSource}")
+    End Function
+
+    Private Function ToPast(logSource As LogType) As String
+        Return If(logSource = LogType.Load, "Loaded", $"{logSource}d")
     End Function
 
 #End Region

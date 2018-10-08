@@ -6,22 +6,23 @@ Imports System.Runtime.CompilerServices
 
 Friend Module Helpers
 
-    Friend Iterator Function GetTypes(obj As Type) As IEnumerable(Of Type)
-        For Each prop In obj.GetProperties.Where(Function(x) IsClassOrStruct(x))
-            Yield prop.PropertyType
+    Friend Iterator Function GetTypes(Of T As {IStoreableObject})(obj As T) As IEnumerable(Of IStoreableObject)
+        Dim properties = GetAllStoreablePropierties(obj.GetType.GetProperties)
+        For Each prop In properties.Where(Function(x) IsClassOrStruct(x))
+            Yield DirectCast(prop.PropertyType, IStoreableObject)
             For Each inprop In prop.PropertyType.GetProperties.Where(Function(x) IsClassOrStruct(x))
-                Yield inprop.PropertyType
-                For Each intype In GetTypes(inprop.PropertyType)
-                    If IsClassOrStruct(intype) Then Yield intype
+                Yield DirectCast(inprop.PropertyType, IStoreableObject)
+                For Each intype In GetTypes(DirectCast(inprop.PropertyType, IStoreableObject))
+                    If IsClassOrStruct(intype.GetType) Then Yield intype
                 Next
             Next
         Next
-        For Each prop In obj.GetProperties.Where(Function(x) GetType(IEnumerable).IsAssignableFrom(x.PropertyType))
+        For Each prop In properties.Where(Function(x) IsCollection(x))
             For Each arg In prop.PropertyType.GenericTypeArguments
                 If IsClassOrStruct(arg) Then
-                    Yield arg
-                    For Each type In GetTypes(arg)
-                        If IsClassOrStruct(type) Then Yield type
+                    Yield DirectCast(arg, IStoreableObject)
+                    For Each type In GetTypes(DirectCast(arg, IStoreableObject))
+                        If IsClassOrStruct(type.GetType) Then Yield type
                     Next
                 End If
             Next
