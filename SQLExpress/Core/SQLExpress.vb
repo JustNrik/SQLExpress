@@ -21,10 +21,28 @@ Public NotInheritable Class SQLExpressClient
     Private _password As String
     Private _enumFlag As Boolean
     Private _tupleFlag As Boolean
-    Private _stringLimit As Integer = -1
+    Private _stringLimit As Integer
+    Private _useCache As Boolean
+    Private _logEnable As Boolean
 #End Region
 #Region "Properties"
+    ''' <summary>
+    ''' This is the cache of objects, will be used if enabled.
+    ''' </summary>
+    ''' <returns></returns>
     Public Property Cache As New ConcurrentDictionary(Of ULong, IStoreableObject)
+
+    Public Property StringLimit As Integer
+        Get
+            Return _stringLimit
+        End Get
+        Set
+            Select Case Value
+                Case -1, 1 To 8000 : _stringLimit = Value
+                Case Else : Throw New ArgumentOutOfRangeException("Length must be between 1 and 8000, or -1 if you want to use MAX length instead")
+            End Select
+        End Set
+    End Property
     ''' <summary>
     ''' Sets the database where the data will be gathered.
     ''' </summary>
@@ -72,73 +90,52 @@ Public NotInheritable Class SQLExpressClient
 #End Region
 #Region "Constructors"
     ''' <summary>
-    ''' Creates a new instance of this class
-    ''' </summary>
-    Sub New(Optional StringLimit As Integer = 20)
-        Select Case StringLimit
-            Case -1
-            Case 1 To 8000 : _stringLimit = StringLimit
-            Case Else : Throw New ArgumentException("Length must be between 1 and 8000, or -1 if you want to use MAX length instead")
-        End Select
-    End Sub
-    ''' <summary>
     ''' Provide the full connection string.
     ''' </summary>
     ''' <param name="ConnectionString"></param>
-    Sub New(ConnectionString As String, Optional StringLimit As Integer = 20)
-        _connectionString = ConnectionString
-        Select Case StringLimit
-            Case -1
-            Case 1 To 8000 : _stringLimit = StringLimit
-            Case Else : Throw New ArgumentException("Length must be between 1 and 8000, or -1 if you want to use MAX length instead")
-        End Select
+    Sub New(config As SQLExpressConfig)
+        With config
+            StringLimit = .StringLimit
+            _connectionString = .ConnectionString
+            _logEnable = .Logging
+            _useCache = .UseCache
+        End With
     End Sub
     ''' <summary>
     ''' Reads the config from a XML Document. You must load the XMlDocument before using this method.
     ''' </summary>
     ''' <param name="xmlConfig"></param>
-    Sub New(xmlConfig As XmlDocument, Optional StringLimit As Integer = 20)
+    Sub New(xmlConfig As XmlDocument)
         ReadConfig(xmlConfig)
-        Select Case StringLimit
-            Case -1
-            Case 1 To 8000 : _stringLimit = StringLimit
-            Case Else : Throw New ArgumentException("Length must be between 1 and 8000, or -1 if you want to use MAX length instead")
-        End Select
     End Sub
     ''' <summary>
     ''' Reads the config from a JSON file. You must parse the JObject before using this method.
     ''' </summary>
     ''' <param name="jConfig"></param>
-    Sub New(jConfig As JObject, Optional StringLimit As Integer = 20)
+    Sub New(jConfig As JObject)
         ReadConfig(jConfig)
-        Select Case StringLimit
-            Case -1
-            Case 1 To 8000 : _stringLimit = StringLimit
-            Case Else : Throw New ArgumentException("Length must be between 1 and 8000, or -1 if you want to use MAX length instead")
-        End Select
     End Sub
 #End Region
 #Region "Config"
-    ''' <summary>
-    ''' Reads the SQL Configuration from an XML Document. Remember to load the document before executing this method.
-    ''' </summary>
-    ''' <param name="xmlConfig"></param>
-    Public Sub ReadConfig(xmlConfig As XmlDocument)
+    Private Sub ReadConfig(xmlConfig As XmlDocument)
         _database = xmlConfig.SelectSingleNode("*/database").InnerXml
         _sqlServer = xmlConfig.SelectSingleNode("*/server").InnerXml
         _username = xmlConfig.SelectSingleNode("*/username").InnerXml
         _password = xmlConfig.SelectSingleNode("*/password").InnerXml
+        _logEnable = Boolean.Parse(xmlConfig.SelectSingleNode("*/enablelogging").InnerXml)
+        _useCache = Boolean.Parse(xmlConfig.SelectSingleNode("*/usecache").InnerXml)
+        _stringLimit = Integer.Parse(xmlConfig.SelectSingleNode("*/stringlimit").InnerXml)
         _connectionString = $"Server={_sqlServer};Database={_database};User Id={_username};Password={_password};"
     End Sub
-    ''' <summary>
-    ''' Reads the SQL Configuration from an JSON file. Remember to parse the document before executing this method.
-    ''' </summary>
-    ''' <param name="jConfig"></param>
-    Public Sub ReadConfig(jConfig As JObject)
+
+    Private Sub ReadConfig(jConfig As JObject)
         _database = $"{jConfig("database")}"
         _sqlServer = $"{jConfig("server")}"
         _username = $"{jConfig("username")}"
         _password = $"{jConfig("password")}"
+        _logEnable = Boolean.Parse($"{jConfig("enablelogging")}")
+        _useCache = Boolean.Parse($"{jConfig("usecache")}")
+        _stringLimit = Integer.Parse($"{jConfig("stringlimit")}")
         _connectionString = $"Server={_sqlServer};Database={_database};User Id={_username};Password={_password};"
     End Sub
 #End Region
@@ -279,17 +276,8 @@ Public NotInheritable Class SQLExpressClient
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync.ConfigureAwait(False)
             For Each obj In objs
                 If Await SendScalarAsync(Of Integer)($"SELECT COUNT(Id) FROM {obj.TableName};", con).ConfigureAwait(False) > 0 Then
-                    Dim ids = YieldData(Of ULong)($"SELECT Id FROM {obj.TableName};", con).ToImmutableArray
-                    For Each id In ids
-                        Dim instance = DirectCast(Activator.CreateInstance(obj.GetType, id), T)
-                        Dim newObj = Await LoadObjectAsync(instance).ConfigureAwait(False)
-                        If Not Cache.ContainsKey(newObj.Id) Then Cache.TryAdd(newObj.Id, newObj) Else Cache(newObj.Id) = newObj
-                    Next
-                End If
-            Next
-            ' Handling for objects with Collection properties, they need to be reloaded.
-            For Each obj In objs.Where(Function(x) x.GetType.GetProperties.Any(Function(y) IsCollection(y))).ToImmutableArray
-                If Await SendScalarAsync(Of Integer)($"SELECT COUNT(Id) FROM {obj.TableName};", con).ConfigureAwait(False) > 0 Then
+                    Dim types = GetTypes(obj.GetType).OfType(Of T).Distinct.ToArray
+                    If types.Length > 0 Then Await LoadObjectsCacheAsync(types)
                     Dim ids = YieldData(Of ULong)($"SELECT Id FROM {obj.TableName};", con).ToImmutableArray
                     For Each id In ids
                         Dim instance = DirectCast(Activator.CreateInstance(obj.GetType, id), T)
@@ -309,6 +297,8 @@ Public NotInheritable Class SQLExpressClient
         Using con As New SqlConnection(_connectionString) : con.Open()
             For Each obj In objs
                 If SendScalar(Of Integer)($"SELECT COUNT(Id) FROM {obj.TableName};", con) > 0 Then
+                    Dim types = GetTypes(obj.GetType).OfType(Of T).Distinct.ToArray
+                    If types.Length > 0 Then LoadObjectsCache(types)
                     Dim ids = YieldData(Of ULong)($"SELECT Id FROM {obj.TableName};", con).ToImmutableArray
                     For Each id In ids
                         Dim instance = DirectCast(Activator.CreateInstance(obj.GetType), T) : instance.Id = id

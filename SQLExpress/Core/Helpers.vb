@@ -6,6 +6,28 @@ Imports System.Runtime.CompilerServices
 
 Friend Module Helpers
 
+    Friend Iterator Function GetTypes(obj As Type) As IEnumerable(Of Type)
+        For Each prop In obj.GetProperties.Where(Function(x) IsClassOrStruct(x))
+            Yield prop.PropertyType
+            For Each inprop In prop.PropertyType.GetProperties.Where(Function(x) IsClassOrStruct(x))
+                Yield inprop.PropertyType
+                For Each intype In GetTypes(inprop.PropertyType)
+                    If IsClassOrStruct(intype) Then Yield intype
+                Next
+            Next
+        Next
+        For Each prop In obj.GetProperties.Where(Function(x) GetType(IEnumerable).IsAssignableFrom(x.PropertyType))
+            For Each arg In prop.PropertyType.GenericTypeArguments
+                If IsClassOrStruct(arg) Then
+                    Yield arg
+                    For Each type In GetTypes(arg)
+                        If IsClassOrStruct(type) Then Yield type
+                    Next
+                End If
+            Next
+        Next
+    End Function
+
     Friend Function GetAllStoreablePropierties(properties As PropertyInfo()) As ImmutableArray(Of PropertyInfo)
         Return (From [property] In properties
                 Where [property].GetCustomAttribute(Of StoreAttribute)(True) IsNot Nothing
