@@ -4,8 +4,8 @@
 Public Class UnsupportedTypeException
         Inherits Exception
 
-        Private Const _defaul = "The object has a property with an unsupported type"
-        Sub New()
-            MyBase.New(_defaul)
-        End Sub
-    End Class
+    Private Const DEFAULT_EXCEPTION_MESSAGE = "The object has a property with an unsupported type"
+    Sub New()
+        MyBase.New(DEFAULT_EXCEPTION_MESSAGE)
+    End Sub
+End Class

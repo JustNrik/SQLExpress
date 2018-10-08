@@ -149,8 +149,14 @@ Public NotInheritable Class SQLExpressClient
     Public Async Function InitialiseObjectsAsync(Of T As {IStoreableObject})(ParamArray objs As T()) As Task
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync.ConfigureAwait(False)
             For Each obj In objs
-                If Not Await CheckObjectExistenceAsync(obj, con).ConfigureAwait(False) Then _
+                If Not Await CheckObjectExistenceAsync(obj, con).ConfigureAwait(False) Then
                     Await SendQueryAsync(BuildTable(obj), con).ConfigureAwait(False)
+                    Dim innerObjs = GetTypes(obj.GetType).OfType(Of T).Distinct.ToImmutableArray
+                    For Each innerObj In innerObjs
+                        If Not Await CheckObjectExistenceAsync(innerObj, con) Then _
+                            Await SendQueryAsync(BuildTable(innerObj), con).ConfigureAwait(False)
+                    Next
+                End If
             Next
         End Using
     End Function
@@ -162,7 +168,13 @@ Public NotInheritable Class SQLExpressClient
     Public Sub InitialiseObjects(Of T As {IStoreableObject})(ParamArray objs As T())
         Using con As New SqlConnection(_connectionString) : con.Open()
             For Each obj In objs
-                If Not CheckObjectExistence(obj, con) Then SendQuery(BuildTable(obj), con)
+                If Not CheckObjectExistence(obj, con) Then
+                    SendQuery(BuildTable(obj), con)
+                    Dim innerObjs = GetTypes(obj.GetType).OfType(Of T).Distinct.ToImmutableArray
+                    For Each innerObj In innerObjs
+                        If Not CheckObjectExistence(innerObj, con) Then SendQuery(BuildTable(innerObj), con)
+                    Next
+                End If
             Next
         End Using
     End Sub
@@ -240,6 +252,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="objs"></param>
     ''' <returns></returns>
     Public Async Function LoadObjectCacheAsync(Of T As {New, IStoreableObject})(obj As T) As Task
+        If Not _useCache Then Throw New CacheDisabledException
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync.ConfigureAwait(False)
             If Await SendScalarAsync(Of Integer)($"SELECT COUNT(Id) FROM {obj.TableName};", con).ConfigureAwait(False) > 0 Then
                 Dim ids = YieldData(Of ULong)($"SELECT Id FROM {obj.TableName};", con).ToImmutableArray
@@ -256,6 +269,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <typeparam name="T"></typeparam>
     ''' <param name="objs"></param>
     Public Sub LoadObjectCache(Of T As {New, IStoreableObject})(obj As T)
+        If Not _useCache Then Throw New CacheDisabledException
         Using con As New SqlConnection(_connectionString) : con.Open()
             If SendScalar(Of Integer)($"SELECT COUNT(Id) FROM {obj.TableName};", con) > 0 Then
                 Dim ids = YieldData(Of ULong)($"SELECT Id FROM {obj.TableName};", con).ToImmutableArray
@@ -273,6 +287,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="objs"></param>
     ''' <returns></returns>
     Public Async Function LoadObjectsCacheAsync(Of T As {IStoreableObject})(ParamArray objs As T()) As Task
+        If Not _useCache Then Throw New CacheDisabledException
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync.ConfigureAwait(False)
             For Each obj In objs
                 If Await SendScalarAsync(Of Integer)($"SELECT COUNT(Id) FROM {obj.TableName};", con).ConfigureAwait(False) > 0 Then
@@ -294,6 +309,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <typeparam name="T"></typeparam>
     ''' <param name="objs"></param>
     Public Sub LoadObjectsCache(Of T As {IStoreableObject})(ParamArray objs As T())
+        If Not _useCache Then Throw New CacheDisabledException
         Using con As New SqlConnection(_connectionString) : con.Open()
             For Each obj In objs
                 If SendScalar(Of Integer)($"SELECT COUNT(Id) FROM {obj.TableName};", con) > 0 Then

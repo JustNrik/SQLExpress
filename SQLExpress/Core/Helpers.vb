@@ -55,7 +55,7 @@ Friend Module Helpers
         If IsCollection([property]) OrElse
            IsTuple([property]) Then Return False
 
-        Return IsClassOrStruct(Type)
+        Return IsClassOrStruct(type)
     End Function
 
     Friend Function IsClassOrStruct(type As Type) As Boolean
