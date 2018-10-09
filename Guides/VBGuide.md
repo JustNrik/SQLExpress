@@ -4,29 +4,22 @@
 
 ```vb
 Function ServiceBuilder() As IServiceProvider
+    ' JSON
+    Dim jString = File.ReadAllText("config.json")
+    Dim jObj = jObject.Parse(jString)
+    ' XML
+    Dim xDoc As New XmlDocument
+    xDoc.Load("config.xml")
     Return New ServiceCollection().
         AddSingleton(New SQLExpressClient(New SQLExpressConfig(YourConnectionString))).
-        ' Others
+        ' AddSingleton(New SQLExpressClient(xDoc))
+        ' AddSingleton(New SQLExpressClient(jObj))
+        ' Any will work
         BuildServiceProvider()
 End Function
 ```
 
-2) Read the config from an XML or JSON file. (You can also provide it directly to the client ctor)
-
-```vb
-Sub LoadConfig()
-    Dim db = _services.GetService(Of SQLExpressClient)
-    ' JSON
-    Dim jString = File.ReadAllText("config.json")
-    Dim jObj = jObject.Parse(jString)
-    db.ReadConfig(jObj)
-    ' XML
-    Dim xDoc As New XmlDocument
-    xDoc.Load("config.xml")
-    db.ReadConfig(xDoc)
-End Sub
-```
-3) Initialise the service.
+2) Initialise the service.
 
 ```vb
 Async Function Initialise() As Task
