@@ -447,18 +447,18 @@ Public NotInheritable Class SQLExpressClient
                         Dim temp = [property].PropertyType.GenericTypeArguments.Where(Function(y) IsClassOrStruct(y))
 
                         If temp.Count > 0 Then
-                            Dim newCol As New List(Of IStoreableObject)
                             For Each item In temp
+                                Dim targetType = GetType(List(Of)).MakeGenericType(item)
+                                Dim newCol = DirectCast(Activator.CreateInstance(targetType), IList)
                                 Dim keys = collection(x).Select(Function(kvp) kvp.Key)
-                                Dim names = collection(x).Select(Function(kvp) kvp.Value).First
                                 For Each key In keys
-                                    Dim instance = TryCast(Activator.CreateInstance(item), IStoreableObject)
+                                    Dim instance = DirectCast(Activator.CreateInstance(item), IStoreableObject)
                                     If instance Is Nothing Then Continue For Else instance.Id = key
                                     newCol.Add(Await LoadObjectAsync(instance))
                                 Next
-                                newCol.RemoveAll(Function(obj) obj.Id = 0)
-                                [property].SetValue(toLoad, ParseCollection(newCol.ToImmutableArray, toLoad, [property].Name))
+                                [property].SetValue(toLoad, ParseCollection(newCol, toLoad, [property].Name))
                             Next
+
                         Else
                             [property].SetValue(toLoad, ParseObject(collection(x), toLoad, collectionNames(x)))
                         End If
@@ -756,25 +756,25 @@ Public NotInheritable Class SQLExpressClient
     End Function
 #End Region
 #Region "Private Methods"
-    Private Function ParseCollection(Of T As {IStoreableObject})(col As ImmutableArray(Of T), obj As T, name As String) As Object
+    Private Function ParseCollection(Of T As {IStoreableObject})(col As IList, obj As T, name As String) As Object
         Dim propType = obj.GetType.GetProperty(name).PropertyType
         Dim propName = propType.Name
         Dim typeName = If(propName.Contains("`"c), propName.Substring(0, propName.IndexOf("`"c)), propName)
         typeName = If(propName.Contains("[]"), "Array", typeName)
         Select Case typeName
-            Case "List", "IList" : Return col.ToList
-            Case "ImmutableList", "IImmutableList" : Return col.ToImmutableList
-            Case "Collection", "ICollection" : Return New Collection(Of T)(col)
-            Case "ReadOnlyCollection", "IReadOnlyCollection" : Return New ReadOnlyCollection(Of T)(col)
-            Case "Enumerable", "IEnumerable" : Return col.AsEnumerable
-            Case "Array" : Return col.ToArray
-            Case "ImmutableArray", "IImmutableArray" : Return col
-            Case "ImmutableList", "IImmutableList" : Return col.ToImmutableList
-            Case "HashSet", "ISet" : Return col.ToHashSet
-            Case "ImmutableHashSet", "IImmutableSet" : Return col.ToImmutableHashSet
-            Case "Dictionary", "IDictionary" : Return col.ToDictionary(Function(x) x.Id, Function(x) x)
-            Case "ReadOnlyDictionary", "IReadOnlyDictionary" : Return New ReadOnlyDictionary(Of ULong, T)(col.ToDictionary(Function(x) x.Id, Function(x) x))
-            Case "ImmutableDictionary", "IImmutableDictionary" : Return col.ToImmutableDictionary(Function(x) x.Id, Function(x) x)
+            Case "List", "IList" : Return col
+            Case "ImmutableList", "IImmutableList" : Return col.OfType(Of T).ToImmutableList
+            Case "Collection", "ICollection" : Return New Collection(Of T)(col.OfType(Of T).ToList)
+            Case "ReadOnlyCollection", "IReadOnlyCollection" : Return New ReadOnlyCollection(Of T)(col.OfType(Of T).ToList)
+            Case "Enumerable", "IEnumerable" : Return col.OfType(Of T).AsEnumerable
+            Case "Array" : Return col.OfType(Of T).ToArray
+            Case "ImmutableArray", "IImmutableArray" : Return col.OfType(Of T).ToImmutableArray
+            Case "ImmutableList", "IImmutableList" : Return col.OfType(Of T).ToImmutableList
+            Case "HashSet", "ISet" : Return col.OfType(Of T).ToHashSet
+            Case "ImmutableHashSet", "IImmutableSet" : Return col.OfType(Of T).ToImmutableHashSet
+            Case "Dictionary", "IDictionary" : Return col.OfType(Of T).ToDictionary(Function(x) x.Id, Function(x) x)
+            Case "ReadOnlyDictionary", "IReadOnlyDictionary" : Return New ReadOnlyDictionary(Of ULong, T)(col.OfType(Of T).ToDictionary(Function(x) x.Id, Function(x) x))
+            Case "ImmutableDictionary", "IImmutableDictionary" : Return col.OfType(Of T).ToImmutableDictionary(Function(x) x.Id, Function(x) x)
         End Select
         Throw New UnsupportedTypeException
     End Function
