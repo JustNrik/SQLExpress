@@ -5,12 +5,12 @@
 ```cs
 IServiceProvider ServiceBuilder()
     => new ServiceCollection().
-    AddSingleton(new SQLExpressClient()).
+    AddSingleton(new SQLExpressClient(New SQLExpressConfig(YourConnectionString))).
     // Others
     BuildServiceProvider();
 ```
 
-2) Read the config from a XML or JSON file
+2) Read the config from a XML or JSON file (You can also provide it directly to the client ctor)
 
 ```cs
 void LoadConfig()
@@ -36,9 +36,7 @@ async Task Initialise()
     IStoreableObject[] objs = new[] { new Person(), new Employee(), new Derp() };
     await dbo.InitialiseObjectsAsync(objs);
     // You can also load the Cache along with the initialisation
-    await dbo.LoadObjectCacheAsync(new Person());
-    await dbo.LoadObjectCacheAsync(new Employee());
-    await dbo.LoadObjectCacheAsync(new Derp());
+    await dbo.LoadObjectCacheAsync(objs); // This will throw if you disable cache
 }
 ```
 
