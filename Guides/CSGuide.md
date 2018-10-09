@@ -1,32 +1,26 @@
 # How to Use
 
-1) Add a **Singleton** of SQLExpressClient
+1) Add a **Singleton** of SQLExpressClient providing an instance of SQLExpressConfig or reading it from a XML or JSON file.
 
 ```cs
 IServiceProvider ServiceBuilder()
-    => new ServiceCollection().
-    AddSingleton(new SQLExpressClient(New SQLExpressConfig(YourConnectionString))).
-    // Others
-    BuildServiceProvider();
-```
-
-2) Read the config from a XML or JSON file (You can also provide it directly to the client ctor)
-
-```cs
-void LoadConfig()
 {
     // JSON
     var jString = File.ReadAllText("config.json");
     var jObj = jObject.Parse(jString);
-    dbo.ReadConfig(jObj);
     // XML
     var xDoc = new XmlDocument();
     xDoc.Load("config.xml");
-    dbo.ReadConfig(xDoc);
+    return new ServiceCollection().
+        AddSingleton(new SQLExpressClient(New SQLExpressConfig(YourConnectionString))).
+        // AddSingleton(new SQLExpressClient(xDoc))
+        // AddSingleton(new SQLExpressClient(jObj))
+        // Any will work.
+        BuildServiceProvider();
 }
 ```
 
-3) Initialise the service
+2) Initialise the service
 
 ```cs
 async Task Initialise()
