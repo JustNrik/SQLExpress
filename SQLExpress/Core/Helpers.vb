@@ -6,6 +6,29 @@ Imports System.Runtime.CompilerServices
 
 Friend Module Helpers
 
+    Friend Iterator Function GetTypes(Of T As {IStoreableObject})(obj As T) As IEnumerable(Of IStoreableObject)
+        Dim properties = GetAllStoreablePropierties(obj.GetType.GetProperties)
+        For Each prop In properties.Where(Function(x) IsClassOrStruct(x))
+            Yield DirectCast(prop.PropertyType, IStoreableObject)
+            For Each inprop In prop.PropertyType.GetProperties.Where(Function(x) IsClassOrStruct(x))
+                Yield DirectCast(inprop.PropertyType, IStoreableObject)
+                For Each intype In GetTypes(DirectCast(inprop.PropertyType, IStoreableObject))
+                    If IsClassOrStruct(intype.GetType) Then Yield intype
+                Next
+            Next
+        Next
+        For Each prop In properties.Where(Function(x) IsCollection(x))
+            For Each arg In prop.PropertyType.GenericTypeArguments
+                If IsClassOrStruct(arg) Then
+                    Yield DirectCast(arg, IStoreableObject)
+                    For Each type In GetTypes(DirectCast(arg, IStoreableObject))
+                        If IsClassOrStruct(type.GetType) Then Yield type
+                    Next
+                End If
+            Next
+        Next
+    End Function
+
     Friend Function GetAllStoreablePropierties(properties As PropertyInfo()) As ImmutableArray(Of PropertyInfo)
         Return (From [property] In properties
                 Where [property].GetCustomAttribute(Of StoreAttribute)(True) IsNot Nothing
@@ -33,7 +56,7 @@ Friend Module Helpers
         If IsCollection([property]) OrElse
            IsTuple([property]) Then Return False
 
-        Return IsClassOrStruct(Type)
+        Return IsClassOrStruct(type)
     End Function
 
     Friend Function IsClassOrStruct(type As Type) As Boolean
@@ -80,12 +103,12 @@ Friend Module Helpers
         Return obj.ToString
     End Function
 
-    Friend Async Function GetCollectionAsync(id As ULong, name As String, con As SqlConnection) As Task(Of ICollection(Of KeyValuePair(Of Integer, String)))
-        Dim dict As New Dictionary(Of Integer, String)
+    Friend Async Function GetCollectionAsync(id As ULong, name As String, con As SqlConnection) As Task(Of ICollection(Of KeyValuePair(Of ULong, String)))
+        Dim dict As New Dictionary(Of ULong, String)
         Using command As New SqlCommand($"SELECT* FROM _enumerablesOfT WHERE Id = {id} And PropName = '{name}'", con)
             Using r = Await command.ExecuteReaderAsync.ConfigureAwait(False)
                 While Await r.ReadAsync.ConfigureAwait(False)
-                    dict.Add(DirectCast(r.Item(3), Integer), ParseSQLDecimal(r.Item(4)))
+                    dict.Add(ULong.Parse($"{r.Item(3)}"), ParseSQLDecimal(r.Item(4)))
                 End While
             End Using
         End Using

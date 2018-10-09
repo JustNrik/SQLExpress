@@ -21,10 +21,31 @@ Public NotInheritable Class SQLExpressClient
     Private _password As String
     Private _enumFlag As Boolean
     Private _tupleFlag As Boolean
-    Private _stringLimit As Integer = -1
+    Private _stringLimit As Integer
+    Private _useCache As Boolean
+    Private _logEnable As Boolean
 #End Region
 #Region "Properties"
+    ''' <summary>
+    ''' This is the cache of objects, will be used if enabled.
+    ''' </summary>
+    ''' <returns></returns>
     Public Property Cache As New ConcurrentDictionary(Of ULong, IStoreableObject)
+    ''' <summary>
+    ''' Sets the limit of the length of string type properties to be stored in the database. Only values between 1 and 8000 are accepted, use -1 for MAX.
+    ''' </summary>
+    ''' <returns></returns>
+    Public Property StringLimit As Integer
+        Get
+            Return _stringLimit
+        End Get
+        Set
+            Select Case Value
+                Case -1, 1 To 8000 : _stringLimit = Value
+                Case Else : Throw New ArgumentOutOfRangeException("Length must be between 1 and 8000, or -1 if you want to use MAX length instead")
+            End Select
+        End Set
+    End Property
     ''' <summary>
     ''' Sets the database where the data will be gathered.
     ''' </summary>
@@ -72,73 +93,52 @@ Public NotInheritable Class SQLExpressClient
 #End Region
 #Region "Constructors"
     ''' <summary>
-    ''' Creates a new instance of this class
-    ''' </summary>
-    Sub New(Optional StringLimit As Integer = 20)
-        Select Case StringLimit
-            Case -1
-            Case 1 To 8000 : _stringLimit = StringLimit
-            Case Else : Throw New ArgumentException("Length must be between 1 and 8000, or -1 if you want to use MAX length instead")
-        End Select
-    End Sub
-    ''' <summary>
     ''' Provide the full connection string.
     ''' </summary>
     ''' <param name="ConnectionString"></param>
-    Sub New(ConnectionString As String, Optional StringLimit As Integer = 20)
-        _connectionString = ConnectionString
-        Select Case StringLimit
-            Case -1
-            Case 1 To 8000 : _stringLimit = StringLimit
-            Case Else : Throw New ArgumentException("Length must be between 1 and 8000, or -1 if you want to use MAX length instead")
-        End Select
+    Sub New(config As SQLExpressConfig)
+        With config
+            StringLimit = .StringLimit
+            _connectionString = .ConnectionString
+            _logEnable = .Logging
+            _useCache = .UseCache
+        End With
     End Sub
     ''' <summary>
     ''' Reads the config from a XML Document. You must load the XMlDocument before using this method.
     ''' </summary>
     ''' <param name="xmlConfig"></param>
-    Sub New(xmlConfig As XmlDocument, Optional StringLimit As Integer = 20)
+    Sub New(xmlConfig As XmlDocument)
         ReadConfig(xmlConfig)
-        Select Case StringLimit
-            Case -1
-            Case 1 To 8000 : _stringLimit = StringLimit
-            Case Else : Throw New ArgumentException("Length must be between 1 and 8000, or -1 if you want to use MAX length instead")
-        End Select
     End Sub
     ''' <summary>
     ''' Reads the config from a JSON file. You must parse the JObject before using this method.
     ''' </summary>
     ''' <param name="jConfig"></param>
-    Sub New(jConfig As JObject, Optional StringLimit As Integer = 20)
+    Sub New(jConfig As JObject)
         ReadConfig(jConfig)
-        Select Case StringLimit
-            Case -1
-            Case 1 To 8000 : _stringLimit = StringLimit
-            Case Else : Throw New ArgumentException("Length must be between 1 and 8000, or -1 if you want to use MAX length instead")
-        End Select
     End Sub
 #End Region
 #Region "Config"
-    ''' <summary>
-    ''' Reads the SQL Configuration from an XML Document. Remember to load the document before executing this method.
-    ''' </summary>
-    ''' <param name="xmlConfig"></param>
-    Public Sub ReadConfig(xmlConfig As XmlDocument)
+    Private Sub ReadConfig(xmlConfig As XmlDocument)
         _database = xmlConfig.SelectSingleNode("*/database").InnerXml
         _sqlServer = xmlConfig.SelectSingleNode("*/server").InnerXml
         _username = xmlConfig.SelectSingleNode("*/username").InnerXml
         _password = xmlConfig.SelectSingleNode("*/password").InnerXml
+        _logEnable = Boolean.Parse(xmlConfig.SelectSingleNode("*/enablelogging").InnerXml)
+        _useCache = Boolean.Parse(xmlConfig.SelectSingleNode("*/usecache").InnerXml)
+        _stringLimit = Integer.Parse(xmlConfig.SelectSingleNode("*/stringlimit").InnerXml)
         _connectionString = $"Server={_sqlServer};Database={_database};User Id={_username};Password={_password};"
     End Sub
-    ''' <summary>
-    ''' Reads the SQL Configuration from an JSON file. Remember to parse the document before executing this method.
-    ''' </summary>
-    ''' <param name="jConfig"></param>
-    Public Sub ReadConfig(jConfig As JObject)
+
+    Private Sub ReadConfig(jConfig As JObject)
         _database = $"{jConfig("database")}"
         _sqlServer = $"{jConfig("server")}"
         _username = $"{jConfig("username")}"
         _password = $"{jConfig("password")}"
+        _logEnable = Boolean.Parse($"{jConfig("enablelogging")}")
+        _useCache = Boolean.Parse($"{jConfig("usecache")}")
+        _stringLimit = Integer.Parse($"{jConfig("stringlimit")}")
         _connectionString = $"Server={_sqlServer};Database={_database};User Id={_username};Password={_password};"
     End Sub
 #End Region
@@ -152,8 +152,14 @@ Public NotInheritable Class SQLExpressClient
     Public Async Function InitialiseObjectsAsync(Of T As {IStoreableObject})(ParamArray objs As T()) As Task
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync.ConfigureAwait(False)
             For Each obj In objs
-                If Not Await CheckObjectExistenceAsync(obj, con).ConfigureAwait(False) Then _
+                If Not Await CheckObjectExistenceAsync(obj, con).ConfigureAwait(False) Then
                     Await SendQueryAsync(BuildTable(obj), con).ConfigureAwait(False)
+                    Dim innerObjs = GetTypes(obj).OfType(Of T).Distinct.ToImmutableArray
+                    For Each innerObj In innerObjs
+                        If Not Await CheckObjectExistenceAsync(innerObj, con) Then _
+                            Await SendQueryAsync(BuildTable(innerObj), con).ConfigureAwait(False)
+                    Next
+                End If
             Next
         End Using
     End Function
@@ -165,7 +171,13 @@ Public NotInheritable Class SQLExpressClient
     Public Sub InitialiseObjects(Of T As {IStoreableObject})(ParamArray objs As T())
         Using con As New SqlConnection(_connectionString) : con.Open()
             For Each obj In objs
-                If Not CheckObjectExistence(obj, con) Then SendQuery(BuildTable(obj), con)
+                If Not CheckObjectExistence(obj, con) Then
+                    SendQuery(BuildTable(obj), con)
+                    Dim innerObjs = GetTypes(obj).OfType(Of T).Distinct.ToImmutableArray
+                    For Each innerObj In innerObjs
+                        If Not CheckObjectExistence(innerObj, con) Then SendQuery(BuildTable(innerObj), con)
+                    Next
+                End If
             Next
         End Using
     End Sub
@@ -243,6 +255,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="objs"></param>
     ''' <returns></returns>
     Public Async Function LoadObjectCacheAsync(Of T As {New, IStoreableObject})(obj As T) As Task
+        If Not _useCache Then Throw New CacheDisabledException
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync.ConfigureAwait(False)
             If Await SendScalarAsync(Of Integer)($"SELECT COUNT(Id) FROM {obj.TableName};", con).ConfigureAwait(False) > 0 Then
                 Dim ids = YieldData(Of ULong)($"SELECT Id FROM {obj.TableName};", con).ToImmutableArray
@@ -259,6 +272,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <typeparam name="T"></typeparam>
     ''' <param name="objs"></param>
     Public Sub LoadObjectCache(Of T As {New, IStoreableObject})(obj As T)
+        If Not _useCache Then Throw New CacheDisabledException
         Using con As New SqlConnection(_connectionString) : con.Open()
             If SendScalar(Of Integer)($"SELECT COUNT(Id) FROM {obj.TableName};", con) > 0 Then
                 Dim ids = YieldData(Of ULong)($"SELECT Id FROM {obj.TableName};", con).ToImmutableArray
@@ -276,23 +290,13 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="objs"></param>
     ''' <returns></returns>
     Public Async Function LoadObjectsCacheAsync(Of T As {IStoreableObject})(ParamArray objs As T()) As Task
+        If Not _useCache Then Throw New CacheDisabledException
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync.ConfigureAwait(False)
             For Each obj In objs
                 If Await SendScalarAsync(Of Integer)($"SELECT COUNT(Id) FROM {obj.TableName};", con).ConfigureAwait(False) > 0 Then
                     Dim ids = YieldData(Of ULong)($"SELECT Id FROM {obj.TableName};", con).ToImmutableArray
                     For Each id In ids
-                        Dim instance = DirectCast(Activator.CreateInstance(obj.GetType, id), T)
-                        Dim newObj = Await LoadObjectAsync(instance).ConfigureAwait(False)
-                        If Not Cache.ContainsKey(newObj.Id) Then Cache.TryAdd(newObj.Id, newObj) Else Cache(newObj.Id) = newObj
-                    Next
-                End If
-            Next
-            ' Handling for objects with Collection properties, they need to be reloaded.
-            For Each obj In objs.Where(Function(x) x.GetType.GetProperties.Any(Function(y) IsCollection(y))).ToImmutableArray
-                If Await SendScalarAsync(Of Integer)($"SELECT COUNT(Id) FROM {obj.TableName};", con).ConfigureAwait(False) > 0 Then
-                    Dim ids = YieldData(Of ULong)($"SELECT Id FROM {obj.TableName};", con).ToImmutableArray
-                    For Each id In ids
-                        Dim instance = DirectCast(Activator.CreateInstance(obj.GetType, id), T)
+                        Dim instance = DirectCast(Activator.CreateInstance(obj.GetType), T) : instance.Id = id
                         Dim newObj = Await LoadObjectAsync(instance).ConfigureAwait(False)
                         If Not Cache.ContainsKey(newObj.Id) Then Cache.TryAdd(newObj.Id, newObj) Else Cache(newObj.Id) = newObj
                     Next
@@ -306,6 +310,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <typeparam name="T"></typeparam>
     ''' <param name="objs"></param>
     Public Sub LoadObjectsCache(Of T As {IStoreableObject})(ParamArray objs As T())
+        If Not _useCache Then Throw New CacheDisabledException
         Using con As New SqlConnection(_connectionString) : con.Open()
             For Each obj In objs
                 If SendScalar(Of Integer)($"SELECT COUNT(Id) FROM {obj.TableName};", con) > 0 Then
@@ -363,7 +368,8 @@ Public NotInheritable Class SQLExpressClient
             End If
 
             Dim newObj = Await LoadObjectAsync(obj).ConfigureAwait(False)
-            If Not Cache.ContainsKey(newObj.Id) Then Cache.TryAdd(newObj.Id, newObj) Else Cache(newObj.Id) = newObj
+            If _useCache Then If Not Cache.ContainsKey(newObj.Id) Then Cache.TryAdd(newObj.Id, newObj) Else Cache(newObj.Id) = newObj
+            Log(newObj, LogType.Create)
             Return newObj
         End Using
     End Function
@@ -374,8 +380,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="id"></param>
     ''' <returns></returns>
     Public Async Function CreateNewObjectAsync(Of T As {New, IStoreableObject})(id As ULong) As Task(Of T)
-        Dim obj As New T With {.Id = id}
-        Return Await CreateNewObjectAsync(obj)
+        Return Await CreateNewObjectAsync(New T With {.Id = id})
     End Function
     ''' <summary>
     ''' Adds a new Object to the database. Throws when fail.
@@ -392,9 +397,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="id"></param>
     ''' <returns></returns>
     Public Function CreateNewObject(Of T As {New, IStoreableObject})(id As ULong) As T
-        Dim obj As New T With {.Id = id}
-        CreateNewObject(obj)
-        Return obj
+        Return CreateNewObjectAsync(New T With {.Id = id}).Result
     End Function
     ''' <summary>
     ''' Adds a new Object to the database. Throws when fail.
@@ -403,7 +406,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="id"></param>
     ''' <param name="obj"></param>
     Public Sub CreateNewObject(Of T As {New, IStoreableObject})(id As ULong, <Out> ByRef obj As T)
-        obj = CreateNewObject(Of T)(id)
+        obj = CreateNewObjectAsync(Of T)(id).Result
     End Sub
 #End Region
 #Region "LoadObject"
@@ -414,7 +417,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="toLoad"></param>
     ''' <returns></returns>
     Public Async Function LoadObjectAsync(Of T As {IStoreableObject})(toLoad As T) As Task(Of T)
-        If Cache.ContainsKey(toLoad.Id) Then Return DirectCast(Cache(toLoad.Id), T)
+        If _useCache AndAlso Cache.ContainsKey(toLoad.Id) Then Return DirectCast(Cache(toLoad.Id), T)
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync.ConfigureAwait(False)
             If Not Await CheckExistenceAsync(toLoad, con).ConfigureAwait(False) Then Return Await CreateNewObjectAsync(toLoad).ConfigureAwait(False)
 
@@ -434,20 +437,32 @@ Public NotInheritable Class SQLExpressClient
             If Not _tupleFlag Then _tupleFlag = Await SendScalarAsync(Of Integer)("SELECT COUNT(Id) FROM _tuplesOfT", con).ConfigureAwait(False) > 0
 
             If collectionNames.Length > 0 AndAlso _enumFlag Then
-                Dim objs As New List(Of ICollection(Of KeyValuePair(Of Integer, String)))
-                For Each name In collectionNames
-                    objs.Add(Await GetCollectionAsync(toLoad.Id, name, con).ConfigureAwait(False))
+                Dim collection As New List(Of ICollection(Of KeyValuePair(Of ULong, String)))
+                For Each collectionName In collectionNames
+                    collection.Add(Await GetCollectionAsync(toLoad.Id, collectionName, con).ConfigureAwait(False))
                 Next
 
-                If objs.Count > 0 Then
+                collection.RemoveAll(Function(x) x Is Nothing)
+
+                If collection.Count > 0 Then
                     For x = 0 To collectionNames.Length - 1
                         Dim [property] = toLoad.GetType.GetProperty(collectionNames(x))
-                        Dim type = [property].PropertyType.GenericTypeArguments()(0)
-                        If IsClassOrStruct(type) Then
-                            Dim loadedObj = TryCast(type, IStoreableObject)
-                            If loadedObj IsNot Nothing Then [property].SetValue(toLoad, Await LoadObjectAsync(DirectCast(type, IStoreableObject)))
+                        Dim temp = [property].PropertyType.GenericTypeArguments.Where(Function(y) IsClassOrStruct(y))
+
+                        If temp.Count > 0 Then
+                            For Each item In temp
+                                Dim targetType = GetType(List(Of)).MakeGenericType(item)
+                                Dim newCol = DirectCast(Activator.CreateInstance(targetType), IList)
+                                Dim keys = collection(x).Select(Function(kvp) kvp.Key)
+                                For Each key In keys
+                                    Dim instance = DirectCast(Activator.CreateInstance(item), IStoreableObject)
+                                    If instance Is Nothing Then Continue For Else instance.Id = key
+                                    newCol.Add(Await LoadObjectAsync(instance))
+                                Next
+                                [property].SetValue(toLoad, ParseCollection(newCol, toLoad, [property].Name))
+                            Next
                         Else
-                            [property].SetValue(toLoad, ParseObject(objs(x), toLoad, collectionNames(x)))
+                            [property].SetValue(toLoad, ParseObject(collection(x), toLoad, collectionNames(x)))
                         End If
                     Next
                 End If
@@ -478,6 +493,7 @@ Public NotInheritable Class SQLExpressClient
                                 SetValue(toLoad, UnsignedFix(toLoad, primitivesName(x), r.Item(primitivesName(x))))
                         Next
                     End While
+                    Log(toLoad, LogType.Load)
                     Return toLoad
                 End Using
             End Using
@@ -490,9 +506,9 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="id"></param>
     ''' <returns></returns>
     Public Async Function LoadObjectAsync(Of T As {New, IStoreableObject})(id As ULong) As Task(Of T)
-        If Cache.ContainsKey(id) Then Return DirectCast(Cache(id), T)
-        Dim toLoad As New T With {.Id = id}
-        Return Await LoadObjectAsync(toLoad).ConfigureAwait(False)
+        Return If(_useCache AndAlso Cache.ContainsKey(id),
+            DirectCast(Cache(id), T),
+            Await LoadObjectAsync(New T With {.Id = id}).ConfigureAwait(False))
     End Function
     ''' <summary>
     ''' Loads the Object, creates a new one if it doesn't exists
@@ -501,8 +517,9 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="obj"></param>
     ''' <returns></returns>
     Public Function LoadObject(Of T As {IStoreableObject})(obj As T) As T
-        If Cache.ContainsKey(obj.Id) Then Return DirectCast(Cache(obj.Id), T)
-        Return LoadObjectAsync(obj).Result
+        Return If(_useCache AndAlso Cache.ContainsKey(obj.Id),
+            DirectCast(Cache(obj.Id), T),
+            LoadObjectAsync(obj).Result)
     End Function
     ''' <summary>
     ''' Loads the Object, creates a new one if it doesn't exists
@@ -511,18 +528,20 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="id"></param>
     ''' <returns></returns>
     Public Function LoadObject(Of T As {New, IStoreableObject})(id As ULong) As T
-        If Cache.ContainsKey(id) Then Return DirectCast(Cache(id), T)
-        Dim newObj As New T With {.Id = id}
-        Return LoadObject(newObj)
+        Return If(_useCache AndAlso Cache.ContainsKey(id),
+            DirectCast(Cache(id), T),
+            LoadObjectAsync(New T With {.Id = id}).Result)
     End Function
-
+    ''' <summary>
+    ''' Loads the Object, creates a new one if it doesn't exists
+    ''' </summary>
+    ''' <typeparam name="T"></typeparam>
+    ''' <param name="id"></param>
+    ''' <param name="obj"></param>
     Public Sub LoadObject(Of T As {New, IStoreableObject})(id As ULong, <Out> ByRef obj As T)
-        If Cache.ContainsKey(id) Then
-            obj = DirectCast(Cache(id), T)
-        Else
-            Dim newObj As New T With {.Id = id}
-            obj = LoadObject(newObj)
-        End If
+        If _useCache AndAlso Cache.ContainsKey(id) Then _
+            obj = DirectCast(Cache(id), T) Else _
+            obj = LoadObjectAsync(New T With {.Id = id}).Result
     End Sub
 #End Region
 #Region "UpdateObject"
@@ -538,8 +557,10 @@ Public NotInheritable Class SQLExpressClient
                 Return Await CreateNewObjectAsync(toUpdate).ConfigureAwait(False)
             Else
                 Await RemoveObjectAsync(toUpdate).ConfigureAwait(False)
+                If _useCache AndAlso Cache.ContainsKey(toUpdate.Id) Then Cache.TryRemove(toUpdate.Id, Nothing)
                 Dim newObj = Await CreateNewObjectAsync(toUpdate).ConfigureAwait(False)
-                If Cache.ContainsKey(toUpdate.Id) Then Cache(toUpdate.Id) = toUpdate Else Cache.TryAdd(toUpdate.Id, toUpdate)
+                If _useCache AndAlso Cache.ContainsKey(toUpdate.Id) Then Cache(toUpdate.Id) = newObj Else Cache.TryAdd(newObj.Id, newObj)
+                Log(newObj, LogType.Update)
                 Return newObj
             End If
         End Using
@@ -550,15 +571,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <typeparam name="T"></typeparam>
     ''' <param name="toUpdate"></param>
     Public Sub UpdateObject(Of T As {New, IStoreableObject})(ByRef toUpdate As T)
-        Using con As New SqlConnection(_connectionString) : con.Open()
-            If Not CheckExistence(toUpdate, con) Then
-                CreateNewObject(toUpdate)
-            Else
-                RemoveObject(toUpdate)
-                CreateNewObject(toUpdate)
-                If Cache.ContainsKey(toUpdate.Id) Then Cache(toUpdate.Id) = toUpdate Else Cache.TryAdd(toUpdate.Id, toUpdate)
-            End If
-        End Using
+        toUpdate = UpdateObjectAsync(toUpdate).Result
     End Sub
 #End Region
 #Region "RemoveObject"
@@ -574,7 +587,8 @@ Public NotInheritable Class SQLExpressClient
             Await SendQueryAsync($"DELETE FROM {toRemove.TableName} WHERE Id = {toRemove.Id};", con).ConfigureAwait(False)
             Await SendQueryAsync($"DELETE FROM _enumerablesOfT WHERE Id = {toRemove.Id};", con).ConfigureAwait(False)
             Await SendQueryAsync($"DELETE FROM _tuplesOfT WHERE Id = {toRemove.Id};", con).ConfigureAwait(False)
-            If Cache.ContainsKey(toRemove.Id) Then Cache.TryRemove(toRemove.Id, Nothing)
+            If _useCache AndAlso Cache.ContainsKey(toRemove.Id) Then Cache.TryRemove(toRemove.Id, Nothing)
+            Log(toRemove, LogType.Delete)
         End Using
     End Function
     ''' <summary>
@@ -584,8 +598,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="id"></param>
     ''' <returns></returns>
     Public Async Function RemoveObjectAsync(Of T As {New, IStoreableObject})(id As ULong) As Task
-        Dim toRemove As New T With {.Id = id}
-        Await RemoveObjectAsync(toRemove).ConfigureAwait(False)
+        Await RemoveObjectAsync(New T With {.Id = id}).ConfigureAwait(False)
     End Function
     ''' <summary>
     ''' Removes the Object if exists
@@ -593,13 +606,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <typeparam name="T"></typeparam>
     ''' <param name="toRemove"></param>
     Public Sub RemoveObject(Of T As {IStoreableObject})(toRemove As T)
-        Using con As New SqlConnection(_connectionString) : con.Open()
-            If Not CheckExistence(toRemove, con) Then Return
-            SendQuery($"DELETE FROM {toRemove.TableName} WHERE Id = {toRemove.Id}", con)
-            SendQuery($"DELETE FROM _enumerablesOfT WHERE Id = {toRemove.Id}", con)
-            SendQuery($"DELETE FROM _tuplesOfT WHERE Id = {toRemove.Id}", con)
-            If Cache.ContainsKey(toRemove.Id) Then Cache.TryRemove(toRemove.Id, Nothing)
-        End Using
+        RemoveObjectAsync(toRemove).Wait()
     End Sub
     ''' <summary>
     ''' Removes the Object if exists
@@ -607,8 +614,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <typeparam name="T"></typeparam>
     ''' <param name="id"></param>
     Public Sub RemoveObject(Of T As {New, IStoreableObject})(id As ULong)
-        Dim toRemove As New T With {.Id = id}
-        RemoveObject(toRemove)
+        RemoveObjectAsync(New T With {.Id = id}).Wait()
     End Sub
 #End Region
 #Region "SendQuery"
@@ -757,9 +763,31 @@ Public NotInheritable Class SQLExpressClient
     End Function
 #End Region
 #Region "Private Methods"
-    Private Function ParseObject([Enum] As ICollection(Of KeyValuePair(Of Integer, String)), obj As IStoreableObject, name As String) As Object
-        Dim [property] = obj.GetType.GetProperty(name)
-        Dim propType = [property].PropertyType
+    Private Function ParseCollection(Of T As {IStoreableObject})(col As IList, obj As T, name As String) As Object
+        Dim propType = obj.GetType.GetProperty(name).PropertyType
+        Dim propName = propType.Name
+        Dim typeName = If(propName.Contains("`"c), propName.Substring(0, propName.IndexOf("`"c)), propName)
+        typeName = If(propName.Contains("[]"), "Array", typeName)
+        Select Case typeName
+            Case "List", "IList" : Return col
+            Case "ImmutableList", "IImmutableList" : Return col.OfType(Of T).ToImmutableList
+            Case "Collection", "ICollection" : Return New Collection(Of T)(col.OfType(Of T).ToList)
+            Case "ReadOnlyCollection", "IReadOnlyCollection" : Return New ReadOnlyCollection(Of T)(col.OfType(Of T).ToList)
+            Case "Enumerable", "IEnumerable" : Return col.OfType(Of T).AsEnumerable
+            Case "Array" : Return col.OfType(Of T).ToArray
+            Case "ImmutableArray", "IImmutableArray" : Return col.OfType(Of T).ToImmutableArray
+            Case "ImmutableList", "IImmutableList" : Return col.OfType(Of T).ToImmutableList
+            Case "HashSet", "ISet" : Return col.OfType(Of T).ToHashSet
+            Case "ImmutableHashSet", "IImmutableSet" : Return col.OfType(Of T).ToImmutableHashSet
+            Case "Dictionary", "IDictionary" : Return col.OfType(Of T).ToDictionary(Function(x) x.Id, Function(x) x)
+            Case "ReadOnlyDictionary", "IReadOnlyDictionary" : Return New ReadOnlyDictionary(Of ULong, T)(col.OfType(Of T).ToDictionary(Function(x) x.Id, Function(x) x))
+            Case "ImmutableDictionary", "IImmutableDictionary" : Return col.OfType(Of T).ToImmutableDictionary(Function(x) x.Id, Function(x) x)
+        End Select
+        Throw New UnsupportedTypeException
+    End Function
+
+    Private Function ParseObject([Enum] As ICollection(Of KeyValuePair(Of ULong, String)), obj As IStoreableObject, name As String) As Object
+        Dim propType = obj.GetType.GetProperty(name).PropertyType
         Dim type = GetNullableTypeName(If(propType.GenericTypeArguments.Count = 0, propType, propType.GetGenericArguments.First))
         Dim typeForDict = If(propType.GenericTypeArguments.Count > 1, GetNullableTypeName(propType.GetGenericArguments.ElementAt(1)), Nothing)
         Dim propName = propType.Name
@@ -899,6 +927,25 @@ Public NotInheritable Class SQLExpressClient
                     Case "DateTimeOffset" : Return [Enum].Select(Function(x) DateTimeOffset.Parse(x.Value)).ToImmutableArray
                     Case "TimeSpan" : Return [Enum].Select(Function(x) TimeSpan.Parse(x.Value)).ToImmutableArray
                 End Select
+            Case "ImmutableList", "IImmutableList"
+                Select Case type
+                    Case "String" : Return [Enum].Select(Function(x) x.Value).ToImmutableList
+                    Case "UInt64" : Return [Enum].Select(Function(x) ULong.Parse(x.Value)).ToImmutableList
+                    Case "Int64" : Return [Enum].Select(Function(x) Long.Parse(x.Value)).ToImmutableList
+                    Case "UInt32" : Return [Enum].Select(Function(x) UInteger.Parse(x.Value)).ToImmutableList
+                    Case "Int32" : Return [Enum].Select(Function(x) Integer.Parse(x.Value)).ToImmutableList
+                    Case "UInt16" : Return [Enum].Select(Function(x) UShort.Parse(x.Value)).ToImmutableList
+                    Case "Int16" : Return [Enum].Select(Function(x) Short.Parse(x.Value)).ToImmutableList
+                    Case "Boolean" : Return [Enum].Select(Function(x) Boolean.Parse(x.Value)).ToImmutableList
+                    Case "Byte" : Return [Enum].Select(Function(x) Byte.Parse(x.Value)).ToImmutableList
+                    Case "SByte" : Return [Enum].Select(Function(x) SByte.Parse(x.Value)).ToImmutableList
+                    Case "Decimal" : Return [Enum].Select(Function(x) Decimal.Parse(x.Value)).ToImmutableList
+                    Case "Double" : Return [Enum].Select(Function(x) Double.Parse(x.Value)).ToImmutableList
+                    Case "Single" : Return [Enum].Select(Function(x) Single.Parse(x.Value)).ToImmutableList
+                    Case "DateTime" : Return [Enum].Select(Function(x) Date.Parse(x.Value)).ToImmutableList
+                    Case "DateTimeOffset" : Return [Enum].Select(Function(x) DateTimeOffset.Parse(x.Value)).ToImmutableList
+                    Case "TimeSpan" : Return [Enum].Select(Function(x) TimeSpan.Parse(x.Value)).ToImmutableList
+                End Select
             Case "HashSet", "ISet"
                 Select Case type
                     Case "String" : Return [Enum].Select(Function(x) x.Value).ToHashSet
@@ -940,40 +987,59 @@ Public NotInheritable Class SQLExpressClient
             Case "Dictionary", "IDictionary"
                 Select Case typeForDict
                     Case "String" : Return [Enum].ToDictionary
-                    Case "UInt64" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, ULong)(x.Key, ULong.Parse(x.Value))).ToDictionary
-                    Case "Int64" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Long)(x.Key, Long.Parse(x.Value))).ToDictionary
-                    Case "UInt32" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, UInteger)(x.Key, UInteger.Parse(x.Value))).ToDictionary
-                    Case "Int32" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Integer)(x.Key, Integer.Parse(x.Value))).ToDictionary
-                    Case "UInt16" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, UShort)(x.Key, UShort.Parse(x.Value))).ToDictionary
-                    Case "Int16" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Short)(x.Key, Short.Parse(x.Value))).ToDictionary
-                    Case "Boolean" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Boolean)(x.Key, Boolean.Parse(x.Value))).ToDictionary
-                    Case "Byte" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Byte)(x.Key, Byte.Parse(x.Value))).ToDictionary
-                    Case "SByte" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, SByte)(x.Key, SByte.Parse(x.Value))).ToDictionary
-                    Case "Decimal" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Decimal)(x.Key, Decimal.Parse(x.Value))).ToDictionary
-                    Case "Double" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Double)(x.Key, Double.Parse(x.Value))).ToDictionary
-                    Case "Single" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Single)(x.Key, Single.Parse(x.Value))).ToDictionary
-                    Case "DateTime" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Date)(x.Key, Date.Parse(x.Value))).ToDictionary
-                    Case "DateTimeOffset" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, DateTimeOffset)(x.Key, DateTimeOffset.Parse(x.Value))).ToDictionary
-                    Case "TimeSpan" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, TimeSpan)(x.Key, TimeSpan.Parse(x.Value))).ToDictionary
+                    Case "UInt64" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, ULong)(x.Key, ULong.Parse(x.Value))).ToDictionary
+                    Case "Int64" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Long)(x.Key, Long.Parse(x.Value))).ToDictionary
+                    Case "UInt32" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, UInteger)(x.Key, UInteger.Parse(x.Value))).ToDictionary
+                    Case "Int32" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Integer)(x.Key, Integer.Parse(x.Value))).ToDictionary
+                    Case "UInt16" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, UShort)(x.Key, UShort.Parse(x.Value))).ToDictionary
+                    Case "Int16" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Short)(x.Key, Short.Parse(x.Value))).ToDictionary
+                    Case "Boolean" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Boolean)(x.Key, Boolean.Parse(x.Value))).ToDictionary
+                    Case "Byte" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Byte)(x.Key, Byte.Parse(x.Value))).ToDictionary
+                    Case "SByte" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, SByte)(x.Key, SByte.Parse(x.Value))).ToDictionary
+                    Case "Decimal" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Decimal)(x.Key, Decimal.Parse(x.Value))).ToDictionary
+                    Case "Double" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Double)(x.Key, Double.Parse(x.Value))).ToDictionary
+                    Case "Single" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Single)(x.Key, Single.Parse(x.Value))).ToDictionary
+                    Case "DateTime" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Date)(x.Key, Date.Parse(x.Value))).ToDictionary
+                    Case "DateTimeOffset" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, DateTimeOffset)(x.Key, DateTimeOffset.Parse(x.Value))).ToDictionary
+                    Case "TimeSpan" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, TimeSpan)(x.Key, TimeSpan.Parse(x.Value))).ToDictionary
+                End Select
+            Case "ReadOnlyDictionary", "IReadOnlyDictionary"
+                Select Case typeForDict
+                    Case "String" : Return New ReadOnlyDictionary(Of ULong, String)([Enum].ToDictionary)
+                    Case "UInt64" : Return New ReadOnlyDictionary(Of ULong, ULong)([Enum].Select(Function(x) New KeyValuePair(Of ULong, ULong)(x.Key, ULong.Parse(x.Value))).ToDictionary)
+                    Case "Int64" : Return New ReadOnlyDictionary(Of ULong, Long)([Enum].Select(Function(x) New KeyValuePair(Of ULong, Long)(x.Key, Long.Parse(x.Value))).ToDictionary)
+                    Case "UInt32" : Return New ReadOnlyDictionary(Of ULong, UInteger)([Enum].Select(Function(x) New KeyValuePair(Of ULong, UInteger)(x.Key, UInteger.Parse(x.Value))).ToDictionary)
+                    Case "Int32" : Return New ReadOnlyDictionary(Of ULong, Integer)([Enum].Select(Function(x) New KeyValuePair(Of ULong, Integer)(x.Key, Integer.Parse(x.Value))).ToDictionary)
+                    Case "UInt16" : Return New ReadOnlyDictionary(Of ULong, UShort)([Enum].Select(Function(x) New KeyValuePair(Of ULong, UShort)(x.Key, UShort.Parse(x.Value))).ToDictionary)
+                    Case "Int16" : Return New ReadOnlyDictionary(Of ULong, Short)([Enum].Select(Function(x) New KeyValuePair(Of ULong, Short)(x.Key, Short.Parse(x.Value))).ToDictionary)
+                    Case "Boolean" : Return New ReadOnlyDictionary(Of ULong, Boolean)([Enum].Select(Function(x) New KeyValuePair(Of ULong, Boolean)(x.Key, Boolean.Parse(x.Value))).ToDictionary)
+                    Case "Byte" : Return New ReadOnlyDictionary(Of ULong, Byte)([Enum].Select(Function(x) New KeyValuePair(Of ULong, Byte)(x.Key, Byte.Parse(x.Value))).ToDictionary)
+                    Case "SByte" : Return New ReadOnlyDictionary(Of ULong, SByte)([Enum].Select(Function(x) New KeyValuePair(Of ULong, SByte)(x.Key, SByte.Parse(x.Value))).ToDictionary)
+                    Case "Decimal" : Return New ReadOnlyDictionary(Of ULong, Decimal)([Enum].Select(Function(x) New KeyValuePair(Of ULong, Decimal)(x.Key, Decimal.Parse(x.Value))).ToDictionary)
+                    Case "Double" : Return New ReadOnlyDictionary(Of ULong, Double)([Enum].Select(Function(x) New KeyValuePair(Of ULong, Double)(x.Key, Double.Parse(x.Value))).ToDictionary)
+                    Case "Single" : Return New ReadOnlyDictionary(Of ULong, Single)([Enum].Select(Function(x) New KeyValuePair(Of ULong, Single)(x.Key, Single.Parse(x.Value))).ToDictionary)
+                    Case "DateTime" : Return New ReadOnlyDictionary(Of ULong, Date)([Enum].Select(Function(x) New KeyValuePair(Of ULong, Date)(x.Key, Date.Parse(x.Value))).ToDictionary)
+                    Case "DateTimeOffset" : Return New ReadOnlyDictionary(Of ULong, DateTimeOffset)([Enum].Select(Function(x) New KeyValuePair(Of ULong, DateTimeOffset)(x.Key, DateTimeOffset.Parse(x.Value))).ToDictionary)
+                    Case "TimeSpan" : Return New ReadOnlyDictionary(Of ULong, TimeSpan)([Enum].Select(Function(x) New KeyValuePair(Of ULong, TimeSpan)(x.Key, TimeSpan.Parse(x.Value))).ToDictionary)
                 End Select
             Case "ImmutableDictionary", "IImmutableDictionary"
                 Select Case typeForDict
                     Case "String" : Return [Enum].ToImmutableDictionary
-                    Case "UInt64" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, ULong)(x.Key, ULong.Parse(x.Value))).ToImmutableDictionary
-                    Case "Int64" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Long)(x.Key, Long.Parse(x.Value))).ToImmutableDictionary
-                    Case "UInt32" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, UInteger)(x.Key, UInteger.Parse(x.Value))).ToImmutableDictionary
-                    Case "Int32" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Integer)(x.Key, Integer.Parse(x.Value))).ToImmutableDictionary
-                    Case "UInt16" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, UShort)(x.Key, UShort.Parse(x.Value))).ToImmutableDictionary
-                    Case "Int16" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Short)(x.Key, Short.Parse(x.Value))).ToImmutableDictionary
-                    Case "Boolean" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Boolean)(x.Key, Boolean.Parse(x.Value))).ToImmutableDictionary
-                    Case "Byte" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Byte)(x.Key, Byte.Parse(x.Value))).ToImmutableDictionary
-                    Case "SByte" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, SByte)(x.Key, SByte.Parse(x.Value))).ToImmutableDictionary
-                    Case "Decimal" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Decimal)(x.Key, Decimal.Parse(x.Value))).ToImmutableDictionary
-                    Case "Double" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Double)(x.Key, Double.Parse(x.Value))).ToImmutableDictionary
-                    Case "Single" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Single)(x.Key, Single.Parse(x.Value))).ToImmutableDictionary
-                    Case "DateTime" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Date)(x.Key, Date.Parse(x.Value))).ToImmutableDictionary
-                    Case "DateTimeOffset" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, DateTimeOffset)(x.Key, DateTimeOffset.Parse(x.Value))).ToImmutableDictionary
-                    Case "TimeSpan" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, TimeSpan)(x.Key, TimeSpan.Parse(x.Value))).ToImmutableDictionary
+                    Case "UInt64" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, ULong)(x.Key, ULong.Parse(x.Value))).ToImmutableDictionary
+                    Case "Int64" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Long)(x.Key, Long.Parse(x.Value))).ToImmutableDictionary
+                    Case "UInt32" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, UInteger)(x.Key, UInteger.Parse(x.Value))).ToImmutableDictionary
+                    Case "Int32" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Integer)(x.Key, Integer.Parse(x.Value))).ToImmutableDictionary
+                    Case "UInt16" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, UShort)(x.Key, UShort.Parse(x.Value))).ToImmutableDictionary
+                    Case "Int16" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Short)(x.Key, Short.Parse(x.Value))).ToImmutableDictionary
+                    Case "Boolean" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Boolean)(x.Key, Boolean.Parse(x.Value))).ToImmutableDictionary
+                    Case "Byte" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Byte)(x.Key, Byte.Parse(x.Value))).ToImmutableDictionary
+                    Case "SByte" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, SByte)(x.Key, SByte.Parse(x.Value))).ToImmutableDictionary
+                    Case "Decimal" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Decimal)(x.Key, Decimal.Parse(x.Value))).ToImmutableDictionary
+                    Case "Double" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Double)(x.Key, Double.Parse(x.Value))).ToImmutableDictionary
+                    Case "Single" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Single)(x.Key, Single.Parse(x.Value))).ToImmutableDictionary
+                    Case "DateTime" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Date)(x.Key, Date.Parse(x.Value))).ToImmutableDictionary
+                    Case "DateTimeOffset" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, DateTimeOffset)(x.Key, DateTimeOffset.Parse(x.Value))).ToImmutableDictionary
+                    Case "TimeSpan" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, TimeSpan)(x.Key, TimeSpan.Parse(x.Value))).ToImmutableDictionary
                 End Select
         End Select
         Throw New UnsupportedTypeException
@@ -1095,6 +1161,29 @@ Public NotInheritable Class SQLExpressClient
         Else
             Return $"{_stringLimit}"
         End If
+    End Function
+
+    Private Sub Log(Of T As {IStoreableObject})(obj As T, logSource As LogType)
+        If Not _logEnable Then Return
+        Console.ForegroundColor = ConsoleColor.Green
+        Console.Write($"[{Date.UtcNow}] [{CenterLog(logSource),-6}] ")
+        Console.ResetColor()
+        Console.WriteLine($"The object of {obj.TableName} ({obj.Id}) has been {ToPast(logSource)}")
+    End Sub
+
+    Private Enum LogType
+        Create
+        Load
+        Update
+        Delete
+    End Enum
+
+    Private Function CenterLog(logSource As LogType) As String
+        Return If(logSource = LogType.Load, " Load ", $"{logSource}")
+    End Function
+
+    Private Function ToPast(logSource As LogType) As String
+        Return If(logSource = LogType.Load, "Loaded", $"{logSource}d")
     End Function
 
 #End Region

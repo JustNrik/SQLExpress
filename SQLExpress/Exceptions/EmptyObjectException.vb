@@ -4,8 +4,9 @@
 Public Class EmptyObjectException
     Inherits Exception
 
-    Private Const _defaul = "The object doesn't have any property with Store Attribute"
+    Private Const DEFAULT_EXCEPTION_MESSAGE = "The object doesn't have any property with Store Attribute"
+
     Sub New()
-        MyBase.New(_defaul)
+        MyBase.New(DEFAULT_EXCEPTION_MESSAGE)
     End Sub
 End Class
