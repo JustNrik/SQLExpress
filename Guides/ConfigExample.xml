@@ -3,4 +3,7 @@
   <database>DatabaseName</database>
   <username>sa</username>
   <password>pw123</password>
+  <stringlimit>20</stringlimit>
+  <usecache>true</usecache>
+  <enablelogging>true</enablelogging>
 </sqlconfig>
