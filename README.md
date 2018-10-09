@@ -22,6 +22,8 @@ Available on NuGet.
 
 `UnsupportedTypeException`: This exception will be thrown if you add Store attribute to a property whose property type is unsupported. Examples: `Object`, `Func<T>`, `Stack`, etc...
 
+`CacheDisabledException`: This exception will be thrown if you attempt to load objects to the cache if it was disabled in your configuration.
+
 # Methods
 
 `InitialiseObjects`: Checks the existence of the provided objects, if they don't exist, their tables will be created in the database.
