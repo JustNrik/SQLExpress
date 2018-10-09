@@ -31,7 +31,10 @@ Public NotInheritable Class SQLExpressClient
     ''' </summary>
     ''' <returns></returns>
     Public Property Cache As New ConcurrentDictionary(Of ULong, IStoreableObject)
-
+    ''' <summary>
+    ''' Sets the limit of the length of string type properties to be stored in the database. Only values between 1 and 8000 are accepted, use -1 for MAX.
+    ''' </summary>
+    ''' <returns></returns>
     Public Property StringLimit As Integer
         Get
             Return _stringLimit
@@ -458,7 +461,6 @@ Public NotInheritable Class SQLExpressClient
                                 Next
                                 [property].SetValue(toLoad, ParseCollection(newCol, toLoad, [property].Name))
                             Next
-
                         Else
                             [property].SetValue(toLoad, ParseObject(collection(x), toLoad, collectionNames(x)))
                         End If
@@ -530,7 +532,12 @@ Public NotInheritable Class SQLExpressClient
             DirectCast(Cache(id), T),
             LoadObjectAsync(New T With {.Id = id}).Result)
     End Function
-
+    ''' <summary>
+    ''' Loads the Object, creates a new one if it doesn't exists
+    ''' </summary>
+    ''' <typeparam name="T"></typeparam>
+    ''' <param name="id"></param>
+    ''' <param name="obj"></param>
     Public Sub LoadObject(Of T As {New, IStoreableObject})(id As ULong, <Out> ByRef obj As T)
         If _useCache AndAlso Cache.ContainsKey(id) Then _
             obj = DirectCast(Cache(id), T) Else _
@@ -548,11 +555,11 @@ Public NotInheritable Class SQLExpressClient
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync.ConfigureAwait(False)
             If Not Await CheckExistenceAsync(toUpdate, con).ConfigureAwait(False) Then
                 Return Await CreateNewObjectAsync(toUpdate).ConfigureAwait(False)
-                Log(toUpdate, LogType.Update)
             Else
                 Await RemoveObjectAsync(toUpdate).ConfigureAwait(False)
+                If _useCache AndAlso Cache.ContainsKey(toUpdate.Id) Then Cache.TryRemove(toUpdate.Id, Nothing)
                 Dim newObj = Await CreateNewObjectAsync(toUpdate).ConfigureAwait(False)
-                If Cache.ContainsKey(toUpdate.Id) Then Cache(toUpdate.Id) = toUpdate Else Cache.TryAdd(toUpdate.Id, toUpdate)
+                If _useCache AndAlso Cache.ContainsKey(toUpdate.Id) Then Cache(toUpdate.Id) = newObj Else Cache.TryAdd(newObj.Id, newObj)
                 Log(newObj, LogType.Update)
                 Return newObj
             End If
@@ -1161,7 +1168,7 @@ Public NotInheritable Class SQLExpressClient
         Console.ForegroundColor = ConsoleColor.Green
         Console.Write($"[{Date.UtcNow}] [{CenterLog(logSource),-6}] ")
         Console.ResetColor()
-        Console.WriteLine($"The object of {obj.TableName} ({obj.Id}) has been {logSource}")
+        Console.WriteLine($"The object of {obj.TableName} ({obj.Id}) has been {ToPast(logSource)}")
     End Sub
 
     Private Enum LogType
