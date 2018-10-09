@@ -2,5 +2,8 @@
   "server" : "YOUR-PC\\SQLEXPRESS",
   "database" : "DatabaseName",
   "username" : "sa",
-  "password" : "pw123"
+  "password" : "pw123",
+  "stringlimit" : "20",
+  "usecache" : "true",
+  "enablelogging" : "false"
 }
