@@ -36,7 +36,7 @@ async Task Initialise()
     IStoreableObject[] objs = new[] { new Person(), new Employee(), new Derp() };
     await dbo.InitialiseObjectsAsync(objs);
     // You can also load the Cache along with the initialisation
-    await dbo.LoadObjectCacheAsync(objs); // This will throw if you disable cache
+    await dbo.LoadObjectsCacheAsync(objs); // This will throw if you disable cache
 }
 ```
 
