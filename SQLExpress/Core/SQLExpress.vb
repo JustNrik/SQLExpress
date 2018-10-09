@@ -255,8 +255,6 @@ Public NotInheritable Class SQLExpressClient
         If Not _useCache Then Throw New CacheDisabledException
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync.ConfigureAwait(False)
             If Await SendScalarAsync(Of Integer)($"SELECT COUNT(Id) FROM {obj.TableName};", con).ConfigureAwait(False) > 0 Then
-                Dim types = GetTypes(obj).Distinct.ToArray
-                If types.Length > 0 Then Await LoadObjectsCacheAsync(types)
                 Dim ids = YieldData(Of ULong)($"SELECT Id FROM {obj.TableName};", con).ToImmutableArray
                 For Each id In ids
                     Dim newObj = Await LoadObjectAsync(New T With {.Id = id}).ConfigureAwait(False)
@@ -275,8 +273,6 @@ Public NotInheritable Class SQLExpressClient
         Using con As New SqlConnection(_connectionString) : con.Open()
             If SendScalar(Of Integer)($"SELECT COUNT(Id) FROM {obj.TableName};", con) > 0 Then
                 Dim ids = YieldData(Of ULong)($"SELECT Id FROM {obj.TableName};", con).ToImmutableArray
-                Dim types = GetTypes(obj).Cast(Of IStoreableObject).Distinct.ToArray
-                If types.Length > 0 Then LoadObjectsCache(types)
                 For Each id In ids
                     Dim newObj = LoadObject(New T With {.Id = id})
                     If Not Cache.ContainsKey(newObj.Id) Then Cache.TryAdd(newObj.Id, newObj)
@@ -295,8 +291,6 @@ Public NotInheritable Class SQLExpressClient
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync.ConfigureAwait(False)
             For Each obj In objs
                 If Await SendScalarAsync(Of Integer)($"SELECT COUNT(Id) FROM {obj.TableName};", con).ConfigureAwait(False) > 0 Then
-                    Dim types = GetTypes(obj).Cast(Of IStoreableObject).Distinct.ToArray
-                    If types.Length > 0 Then Await LoadObjectsCacheAsync(types)
                     Dim ids = YieldData(Of ULong)($"SELECT Id FROM {obj.TableName};", con).ToImmutableArray
                     For Each id In ids
                         Dim instance = DirectCast(Activator.CreateInstance(obj.GetType), T) : instance.Id = id
@@ -317,8 +311,6 @@ Public NotInheritable Class SQLExpressClient
         Using con As New SqlConnection(_connectionString) : con.Open()
             For Each obj In objs
                 If SendScalar(Of Integer)($"SELECT COUNT(Id) FROM {obj.TableName};", con) > 0 Then
-                    Dim types = GetTypes(obj).Cast(Of IStoreableObject).Distinct.ToArray
-                    If types.Length > 0 Then LoadObjectsCache(types)
                     Dim ids = YieldData(Of ULong)($"SELECT Id FROM {obj.TableName};", con).ToImmutableArray
                     For Each id In ids
                         Dim instance = DirectCast(Activator.CreateInstance(obj.GetType), T) : instance.Id = id
@@ -422,7 +414,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="toLoad"></param>
     ''' <returns></returns>
     Public Async Function LoadObjectAsync(Of T As {IStoreableObject})(toLoad As T) As Task(Of T)
-        If Cache.ContainsKey(toLoad.Id) Then Return DirectCast(Cache(toLoad.Id), T)
+        If _useCache AndAlso Cache.ContainsKey(toLoad.Id) Then Return DirectCast(Cache(toLoad.Id), T)
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync.ConfigureAwait(False)
             If Not Await CheckExistenceAsync(toLoad, con).ConfigureAwait(False) Then Return Await CreateNewObjectAsync(toLoad).ConfigureAwait(False)
 
@@ -442,20 +434,33 @@ Public NotInheritable Class SQLExpressClient
             If Not _tupleFlag Then _tupleFlag = Await SendScalarAsync(Of Integer)("SELECT COUNT(Id) FROM _tuplesOfT", con).ConfigureAwait(False) > 0
 
             If collectionNames.Length > 0 AndAlso _enumFlag Then
-                Dim objs As New List(Of ICollection(Of KeyValuePair(Of Integer, String)))
-                For Each name In collectionNames
-                    objs.Add(Await GetCollectionAsync(toLoad.Id, name, con).ConfigureAwait(False))
+                Dim collection As New List(Of ICollection(Of KeyValuePair(Of ULong, String)))
+                For Each collectionName In collectionNames
+                    collection.Add(Await GetCollectionAsync(toLoad.Id, collectionName, con).ConfigureAwait(False))
                 Next
 
-                If objs.Count > 0 Then
+                collection.RemoveAll(Function(x) x Is Nothing)
+
+                If collection.Count > 0 Then
                     For x = 0 To collectionNames.Length - 1
                         Dim [property] = toLoad.GetType.GetProperty(collectionNames(x))
-                        Dim type = [property].PropertyType.GenericTypeArguments()(0)
-                        If IsClassOrStruct(type) Then
-                            Dim loadedObj = TryCast(type, IStoreableObject)
-                            If loadedObj IsNot Nothing Then [property].SetValue(toLoad, Await LoadObjectAsync(DirectCast(type, IStoreableObject)))
+                        Dim temp = [property].PropertyType.GenericTypeArguments.Where(Function(y) IsClassOrStruct(y))
+
+                        If temp.Count > 0 Then
+                            Dim newCol As New List(Of IStoreableObject)
+                            For Each item In temp
+                                Dim keys = collection(x).Select(Function(kvp) kvp.Key)
+                                Dim names = collection(x).Select(Function(kvp) kvp.Value).First
+                                For Each key In keys
+                                    Dim instance = TryCast(Activator.CreateInstance(item), IStoreableObject)
+                                    If instance Is Nothing Then Continue For Else instance.Id = key
+                                    newCol.Add(Await LoadObjectAsync(instance))
+                                Next
+                                newCol.RemoveAll(Function(obj) obj.Id = 0)
+                                [property].SetValue(toLoad, ParseCollection(newCol.ToImmutableArray, toLoad, [property].Name))
+                            Next
                         Else
-                            [property].SetValue(toLoad, ParseObject(objs(x), toLoad, collectionNames(x)))
+                            [property].SetValue(toLoad, ParseObject(collection(x), toLoad, collectionNames(x)))
                         End If
                     Next
                 End If
@@ -751,9 +756,31 @@ Public NotInheritable Class SQLExpressClient
     End Function
 #End Region
 #Region "Private Methods"
-    Private Function ParseObject([Enum] As ICollection(Of KeyValuePair(Of Integer, String)), obj As IStoreableObject, name As String) As Object
-        Dim [property] = obj.GetType.GetProperty(name)
-        Dim propType = [property].PropertyType
+    Private Function ParseCollection(Of T As {IStoreableObject})(col As ImmutableArray(Of T), obj As T, name As String) As Object
+        Dim propType = obj.GetType.GetProperty(name).PropertyType
+        Dim propName = propType.Name
+        Dim typeName = If(propName.Contains("`"c), propName.Substring(0, propName.IndexOf("`"c)), propName)
+        typeName = If(propName.Contains("[]"), "Array", typeName)
+        Select Case typeName
+            Case "List", "IList" : Return col.ToList
+            Case "ImmutableList", "IImmutableList" : Return col.ToImmutableList
+            Case "Collection", "ICollection" : Return New Collection(Of T)(col)
+            Case "ReadOnlyCollection", "IReadOnlyCollection" : Return New ReadOnlyCollection(Of T)(col)
+            Case "Enumerable", "IEnumerable" : Return col.AsEnumerable
+            Case "Array" : Return col.ToArray
+            Case "ImmutableArray", "IImmutableArray" : Return col
+            Case "ImmutableList", "IImmutableList" : Return col.ToImmutableList
+            Case "HashSet", "ISet" : Return col.ToHashSet
+            Case "ImmutableHashSet", "IImmutableSet" : Return col.ToImmutableHashSet
+            Case "Dictionary", "IDictionary" : Return col.ToDictionary(Function(x) x.Id, Function(x) x)
+            Case "ReadOnlyDictionary", "IReadOnlyDictionary" : Return New ReadOnlyDictionary(Of ULong, T)(col.ToDictionary(Function(x) x.Id, Function(x) x))
+            Case "ImmutableDictionary", "IImmutableDictionary" : Return col.ToImmutableDictionary(Function(x) x.Id, Function(x) x)
+        End Select
+        Throw New UnsupportedTypeException
+    End Function
+
+    Private Function ParseObject([Enum] As ICollection(Of KeyValuePair(Of ULong, String)), obj As IStoreableObject, name As String) As Object
+        Dim propType = obj.GetType.GetProperty(name).PropertyType
         Dim type = GetNullableTypeName(If(propType.GenericTypeArguments.Count = 0, propType, propType.GetGenericArguments.First))
         Dim typeForDict = If(propType.GenericTypeArguments.Count > 1, GetNullableTypeName(propType.GetGenericArguments.ElementAt(1)), Nothing)
         Dim propName = propType.Name
@@ -893,6 +920,25 @@ Public NotInheritable Class SQLExpressClient
                     Case "DateTimeOffset" : Return [Enum].Select(Function(x) DateTimeOffset.Parse(x.Value)).ToImmutableArray
                     Case "TimeSpan" : Return [Enum].Select(Function(x) TimeSpan.Parse(x.Value)).ToImmutableArray
                 End Select
+            Case "ImmutableList", "IImmutableList"
+                Select Case type
+                    Case "String" : Return [Enum].Select(Function(x) x.Value).ToImmutableList
+                    Case "UInt64" : Return [Enum].Select(Function(x) ULong.Parse(x.Value)).ToImmutableList
+                    Case "Int64" : Return [Enum].Select(Function(x) Long.Parse(x.Value)).ToImmutableList
+                    Case "UInt32" : Return [Enum].Select(Function(x) UInteger.Parse(x.Value)).ToImmutableList
+                    Case "Int32" : Return [Enum].Select(Function(x) Integer.Parse(x.Value)).ToImmutableList
+                    Case "UInt16" : Return [Enum].Select(Function(x) UShort.Parse(x.Value)).ToImmutableList
+                    Case "Int16" : Return [Enum].Select(Function(x) Short.Parse(x.Value)).ToImmutableList
+                    Case "Boolean" : Return [Enum].Select(Function(x) Boolean.Parse(x.Value)).ToImmutableList
+                    Case "Byte" : Return [Enum].Select(Function(x) Byte.Parse(x.Value)).ToImmutableList
+                    Case "SByte" : Return [Enum].Select(Function(x) SByte.Parse(x.Value)).ToImmutableList
+                    Case "Decimal" : Return [Enum].Select(Function(x) Decimal.Parse(x.Value)).ToImmutableList
+                    Case "Double" : Return [Enum].Select(Function(x) Double.Parse(x.Value)).ToImmutableList
+                    Case "Single" : Return [Enum].Select(Function(x) Single.Parse(x.Value)).ToImmutableList
+                    Case "DateTime" : Return [Enum].Select(Function(x) Date.Parse(x.Value)).ToImmutableList
+                    Case "DateTimeOffset" : Return [Enum].Select(Function(x) DateTimeOffset.Parse(x.Value)).ToImmutableList
+                    Case "TimeSpan" : Return [Enum].Select(Function(x) TimeSpan.Parse(x.Value)).ToImmutableList
+                End Select
             Case "HashSet", "ISet"
                 Select Case type
                     Case "String" : Return [Enum].Select(Function(x) x.Value).ToHashSet
@@ -934,40 +980,59 @@ Public NotInheritable Class SQLExpressClient
             Case "Dictionary", "IDictionary"
                 Select Case typeForDict
                     Case "String" : Return [Enum].ToDictionary
-                    Case "UInt64" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, ULong)(x.Key, ULong.Parse(x.Value))).ToDictionary
-                    Case "Int64" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Long)(x.Key, Long.Parse(x.Value))).ToDictionary
-                    Case "UInt32" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, UInteger)(x.Key, UInteger.Parse(x.Value))).ToDictionary
-                    Case "Int32" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Integer)(x.Key, Integer.Parse(x.Value))).ToDictionary
-                    Case "UInt16" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, UShort)(x.Key, UShort.Parse(x.Value))).ToDictionary
-                    Case "Int16" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Short)(x.Key, Short.Parse(x.Value))).ToDictionary
-                    Case "Boolean" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Boolean)(x.Key, Boolean.Parse(x.Value))).ToDictionary
-                    Case "Byte" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Byte)(x.Key, Byte.Parse(x.Value))).ToDictionary
-                    Case "SByte" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, SByte)(x.Key, SByte.Parse(x.Value))).ToDictionary
-                    Case "Decimal" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Decimal)(x.Key, Decimal.Parse(x.Value))).ToDictionary
-                    Case "Double" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Double)(x.Key, Double.Parse(x.Value))).ToDictionary
-                    Case "Single" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Single)(x.Key, Single.Parse(x.Value))).ToDictionary
-                    Case "DateTime" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Date)(x.Key, Date.Parse(x.Value))).ToDictionary
-                    Case "DateTimeOffset" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, DateTimeOffset)(x.Key, DateTimeOffset.Parse(x.Value))).ToDictionary
-                    Case "TimeSpan" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, TimeSpan)(x.Key, TimeSpan.Parse(x.Value))).ToDictionary
+                    Case "UInt64" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, ULong)(x.Key, ULong.Parse(x.Value))).ToDictionary
+                    Case "Int64" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Long)(x.Key, Long.Parse(x.Value))).ToDictionary
+                    Case "UInt32" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, UInteger)(x.Key, UInteger.Parse(x.Value))).ToDictionary
+                    Case "Int32" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Integer)(x.Key, Integer.Parse(x.Value))).ToDictionary
+                    Case "UInt16" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, UShort)(x.Key, UShort.Parse(x.Value))).ToDictionary
+                    Case "Int16" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Short)(x.Key, Short.Parse(x.Value))).ToDictionary
+                    Case "Boolean" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Boolean)(x.Key, Boolean.Parse(x.Value))).ToDictionary
+                    Case "Byte" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Byte)(x.Key, Byte.Parse(x.Value))).ToDictionary
+                    Case "SByte" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, SByte)(x.Key, SByte.Parse(x.Value))).ToDictionary
+                    Case "Decimal" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Decimal)(x.Key, Decimal.Parse(x.Value))).ToDictionary
+                    Case "Double" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Double)(x.Key, Double.Parse(x.Value))).ToDictionary
+                    Case "Single" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Single)(x.Key, Single.Parse(x.Value))).ToDictionary
+                    Case "DateTime" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Date)(x.Key, Date.Parse(x.Value))).ToDictionary
+                    Case "DateTimeOffset" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, DateTimeOffset)(x.Key, DateTimeOffset.Parse(x.Value))).ToDictionary
+                    Case "TimeSpan" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, TimeSpan)(x.Key, TimeSpan.Parse(x.Value))).ToDictionary
+                End Select
+            Case "ReadOnlyDictionary", "IReadOnlyDictionary"
+                Select Case typeForDict
+                    Case "String" : Return New ReadOnlyDictionary(Of ULong, String)([Enum].ToDictionary)
+                    Case "UInt64" : Return New ReadOnlyDictionary(Of ULong, ULong)([Enum].Select(Function(x) New KeyValuePair(Of ULong, ULong)(x.Key, ULong.Parse(x.Value))).ToDictionary)
+                    Case "Int64" : Return New ReadOnlyDictionary(Of ULong, Long)([Enum].Select(Function(x) New KeyValuePair(Of ULong, Long)(x.Key, Long.Parse(x.Value))).ToDictionary)
+                    Case "UInt32" : Return New ReadOnlyDictionary(Of ULong, UInteger)([Enum].Select(Function(x) New KeyValuePair(Of ULong, UInteger)(x.Key, UInteger.Parse(x.Value))).ToDictionary)
+                    Case "Int32" : Return New ReadOnlyDictionary(Of ULong, Integer)([Enum].Select(Function(x) New KeyValuePair(Of ULong, Integer)(x.Key, Integer.Parse(x.Value))).ToDictionary)
+                    Case "UInt16" : Return New ReadOnlyDictionary(Of ULong, UShort)([Enum].Select(Function(x) New KeyValuePair(Of ULong, UShort)(x.Key, UShort.Parse(x.Value))).ToDictionary)
+                    Case "Int16" : Return New ReadOnlyDictionary(Of ULong, Short)([Enum].Select(Function(x) New KeyValuePair(Of ULong, Short)(x.Key, Short.Parse(x.Value))).ToDictionary)
+                    Case "Boolean" : Return New ReadOnlyDictionary(Of ULong, Boolean)([Enum].Select(Function(x) New KeyValuePair(Of ULong, Boolean)(x.Key, Boolean.Parse(x.Value))).ToDictionary)
+                    Case "Byte" : Return New ReadOnlyDictionary(Of ULong, Byte)([Enum].Select(Function(x) New KeyValuePair(Of ULong, Byte)(x.Key, Byte.Parse(x.Value))).ToDictionary)
+                    Case "SByte" : Return New ReadOnlyDictionary(Of ULong, SByte)([Enum].Select(Function(x) New KeyValuePair(Of ULong, SByte)(x.Key, SByte.Parse(x.Value))).ToDictionary)
+                    Case "Decimal" : Return New ReadOnlyDictionary(Of ULong, Decimal)([Enum].Select(Function(x) New KeyValuePair(Of ULong, Decimal)(x.Key, Decimal.Parse(x.Value))).ToDictionary)
+                    Case "Double" : Return New ReadOnlyDictionary(Of ULong, Double)([Enum].Select(Function(x) New KeyValuePair(Of ULong, Double)(x.Key, Double.Parse(x.Value))).ToDictionary)
+                    Case "Single" : Return New ReadOnlyDictionary(Of ULong, Single)([Enum].Select(Function(x) New KeyValuePair(Of ULong, Single)(x.Key, Single.Parse(x.Value))).ToDictionary)
+                    Case "DateTime" : Return New ReadOnlyDictionary(Of ULong, Date)([Enum].Select(Function(x) New KeyValuePair(Of ULong, Date)(x.Key, Date.Parse(x.Value))).ToDictionary)
+                    Case "DateTimeOffset" : Return New ReadOnlyDictionary(Of ULong, DateTimeOffset)([Enum].Select(Function(x) New KeyValuePair(Of ULong, DateTimeOffset)(x.Key, DateTimeOffset.Parse(x.Value))).ToDictionary)
+                    Case "TimeSpan" : Return New ReadOnlyDictionary(Of ULong, TimeSpan)([Enum].Select(Function(x) New KeyValuePair(Of ULong, TimeSpan)(x.Key, TimeSpan.Parse(x.Value))).ToDictionary)
                 End Select
             Case "ImmutableDictionary", "IImmutableDictionary"
                 Select Case typeForDict
                     Case "String" : Return [Enum].ToImmutableDictionary
-                    Case "UInt64" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, ULong)(x.Key, ULong.Parse(x.Value))).ToImmutableDictionary
-                    Case "Int64" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Long)(x.Key, Long.Parse(x.Value))).ToImmutableDictionary
-                    Case "UInt32" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, UInteger)(x.Key, UInteger.Parse(x.Value))).ToImmutableDictionary
-                    Case "Int32" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Integer)(x.Key, Integer.Parse(x.Value))).ToImmutableDictionary
-                    Case "UInt16" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, UShort)(x.Key, UShort.Parse(x.Value))).ToImmutableDictionary
-                    Case "Int16" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Short)(x.Key, Short.Parse(x.Value))).ToImmutableDictionary
-                    Case "Boolean" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Boolean)(x.Key, Boolean.Parse(x.Value))).ToImmutableDictionary
-                    Case "Byte" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Byte)(x.Key, Byte.Parse(x.Value))).ToImmutableDictionary
-                    Case "SByte" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, SByte)(x.Key, SByte.Parse(x.Value))).ToImmutableDictionary
-                    Case "Decimal" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Decimal)(x.Key, Decimal.Parse(x.Value))).ToImmutableDictionary
-                    Case "Double" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Double)(x.Key, Double.Parse(x.Value))).ToImmutableDictionary
-                    Case "Single" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Single)(x.Key, Single.Parse(x.Value))).ToImmutableDictionary
-                    Case "DateTime" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, Date)(x.Key, Date.Parse(x.Value))).ToImmutableDictionary
-                    Case "DateTimeOffset" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, DateTimeOffset)(x.Key, DateTimeOffset.Parse(x.Value))).ToImmutableDictionary
-                    Case "TimeSpan" : Return [Enum].Select(Function(x) New KeyValuePair(Of Integer, TimeSpan)(x.Key, TimeSpan.Parse(x.Value))).ToImmutableDictionary
+                    Case "UInt64" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, ULong)(x.Key, ULong.Parse(x.Value))).ToImmutableDictionary
+                    Case "Int64" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Long)(x.Key, Long.Parse(x.Value))).ToImmutableDictionary
+                    Case "UInt32" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, UInteger)(x.Key, UInteger.Parse(x.Value))).ToImmutableDictionary
+                    Case "Int32" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Integer)(x.Key, Integer.Parse(x.Value))).ToImmutableDictionary
+                    Case "UInt16" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, UShort)(x.Key, UShort.Parse(x.Value))).ToImmutableDictionary
+                    Case "Int16" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Short)(x.Key, Short.Parse(x.Value))).ToImmutableDictionary
+                    Case "Boolean" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Boolean)(x.Key, Boolean.Parse(x.Value))).ToImmutableDictionary
+                    Case "Byte" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Byte)(x.Key, Byte.Parse(x.Value))).ToImmutableDictionary
+                    Case "SByte" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, SByte)(x.Key, SByte.Parse(x.Value))).ToImmutableDictionary
+                    Case "Decimal" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Decimal)(x.Key, Decimal.Parse(x.Value))).ToImmutableDictionary
+                    Case "Double" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Double)(x.Key, Double.Parse(x.Value))).ToImmutableDictionary
+                    Case "Single" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Single)(x.Key, Single.Parse(x.Value))).ToImmutableDictionary
+                    Case "DateTime" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Date)(x.Key, Date.Parse(x.Value))).ToImmutableDictionary
+                    Case "DateTimeOffset" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, DateTimeOffset)(x.Key, DateTimeOffset.Parse(x.Value))).ToImmutableDictionary
+                    Case "TimeSpan" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, TimeSpan)(x.Key, TimeSpan.Parse(x.Value))).ToImmutableDictionary
                 End Select
         End Select
         Throw New UnsupportedTypeException

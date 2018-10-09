@@ -103,12 +103,12 @@ Friend Module Helpers
         Return obj.ToString
     End Function
 
-    Friend Async Function GetCollectionAsync(id As ULong, name As String, con As SqlConnection) As Task(Of ICollection(Of KeyValuePair(Of Integer, String)))
-        Dim dict As New Dictionary(Of Integer, String)
+    Friend Async Function GetCollectionAsync(id As ULong, name As String, con As SqlConnection) As Task(Of ICollection(Of KeyValuePair(Of ULong, String)))
+        Dim dict As New Dictionary(Of ULong, String)
         Using command As New SqlCommand($"SELECT* FROM _enumerablesOfT WHERE Id = {id} And PropName = '{name}'", con)
             Using r = Await command.ExecuteReaderAsync.ConfigureAwait(False)
                 While Await r.ReadAsync.ConfigureAwait(False)
-                    dict.Add(DirectCast(r.Item(3), Integer), ParseSQLDecimal(r.Item(4)))
+                    dict.Add(ULong.Parse($"{r.Item(3)}"), ParseSQLDecimal(r.Item(4)))
                 End While
             End Using
         End Using
