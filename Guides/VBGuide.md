@@ -5,13 +5,13 @@
 ```vb
 Function ServiceBuilder() As IServiceProvider
     Return New ServiceCollection().
-        AddSingleton(New SQLExpressClient).
+        AddSingleton(New SQLExpressClient(New SQLExpressConfig(YourConnectionString))).
         ' Others
         BuildServiceProvider()
 End Function
 ```
 
-2) Read the config from an XML or JSON file.
+2) Read the config from an XML or JSON file. (You can also provide it directly to the client ctor)
 
 ```vb
 Sub LoadConfig()
@@ -35,9 +35,7 @@ Async Function Initialise() As Task
     Dim objs As IStoreableObject = {New Person, New Employee, New Derp}
     Await db.InitialiseObjectsAsync(objs)
     ' You can also load the Cache along with the initialisation
-    Await db.LoadObjectCacheAsync(New Person)
-    Await db.LoadObjectCacheAsync(New Employee)
-    Await db.LoadObjectCacheAsync(New Derp)
+    Await db.LoadObjectsCacheAsync(objs) ' This will throw if you disable cache
 End Function
 ```
 
