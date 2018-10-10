@@ -4,7 +4,7 @@
 2) ~Add compatibility with Class/Struct type properties~ Improve compatibility
 3) Add compatibility with Foreign Keys (?)
 4) ~Add compatibility with Nullable types~ Improve compatibility
-5) Add compatibility with ValueTuple
+5) ~Add compatibility with ValueTuple~
 6) ~Improve cache~ keep improving cache if needed
 7) Improve performance
 
@@ -12,7 +12,7 @@
 
 Currently, I will only plan to support:
 
-T[] // All kind of matrixes hopefully, initial support will be probably upto [][][]
+T[] // All kind of matrixes hopefully
 
 List(Of T)
 
