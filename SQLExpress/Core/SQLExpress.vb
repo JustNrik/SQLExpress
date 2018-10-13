@@ -103,7 +103,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <summary>
     ''' Provide the full connection string.
     ''' </summary>
-    ''' <param name="ConnectionString"></param>
+    ''' <param name="config"></param>
     Sub New(config As SQLExpressConfig)
         With config
             StringLimit = .StringLimit
@@ -260,7 +260,7 @@ Public NotInheritable Class SQLExpressClient
     ''' Loads the cache of the provided object.
     ''' </summary>
     ''' <typeparam name="T"></typeparam>
-    ''' <param name="objs"></param>
+    ''' <param name="obj"></param>
     ''' <returns></returns>
     Public Async Function LoadObjectCacheAsync(Of T As {New, IStoreableObject})(obj As T) As Task
         If Not _useCache Then Throw New CacheDisabledException
@@ -278,7 +278,7 @@ Public NotInheritable Class SQLExpressClient
     ''' Loads the cache of the provided object.
     ''' </summary>
     ''' <typeparam name="T"></typeparam>
-    ''' <param name="objs"></param>
+    ''' <param name="obj"></param>
     Public Sub LoadObjectCache(Of T As {New, IStoreableObject})(obj As T)
         If Not _useCache Then Throw New CacheDisabledException
         Using con As New SqlConnection(_connectionString) : con.Open()
