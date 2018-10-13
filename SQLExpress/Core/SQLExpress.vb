@@ -154,7 +154,7 @@ Public NotInheritable Class SQLExpressClient
             For Each obj In objs
                 If Not Await CheckObjectExistenceAsync(obj, con).ConfigureAwait(False) Then
                     Await SendQueryAsync(BuildTable(obj), con).ConfigureAwait(False)
-                    Dim innerObjs = GetTypes(obj).OfType(Of T).Distinct.ToImmutableArray
+                    Dim innerObjs = GetTypes(obj).Distinct.ToImmutableArray
                     For Each innerObj In innerObjs
                         If Not Await CheckObjectExistenceAsync(innerObj, con) Then _
                             Await SendQueryAsync(BuildTable(innerObj), con).ConfigureAwait(False)
@@ -173,7 +173,7 @@ Public NotInheritable Class SQLExpressClient
             For Each obj In objs
                 If Not CheckObjectExistence(obj, con) Then
                     SendQuery(BuildTable(obj), con)
-                    Dim innerObjs = GetTypes(obj).OfType(Of T).Distinct.ToImmutableArray
+                    Dim innerObjs = GetTypes(obj).Distinct.ToImmutableArray
                     For Each innerObj In innerObjs
                         If Not CheckObjectExistence(innerObj, con) Then SendQuery(BuildTable(innerObj), con)
                     Next
@@ -367,9 +367,9 @@ Public NotInheritable Class SQLExpressClient
                 Next
             End If
 
+            Log(obj, LogType.Create)
             Dim newObj = Await LoadObjectAsync(obj).ConfigureAwait(False)
             If _useCache Then If Not Cache.ContainsKey(newObj.Id) Then Cache.TryAdd(newObj.Id, newObj) Else Cache(newObj.Id) = newObj
-            Log(newObj, LogType.Create)
             Return newObj
         End Using
     End Function

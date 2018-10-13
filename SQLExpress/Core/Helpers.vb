@@ -62,6 +62,9 @@ Friend Module Helpers
     Friend Function IsClassOrStruct(type As Type) As Boolean
         If type.IsPrimitive Then Return False
 
+        If type.IsGenericType AndAlso
+           type.GetGenericTypeDefinition = GetType(Nullable(Of)) Then Return False
+
         If type Is GetType(Decimal) OrElse
            type Is GetType(String) OrElse
            type Is GetType(Date) OrElse
