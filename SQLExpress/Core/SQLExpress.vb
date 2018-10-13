@@ -13,6 +13,9 @@ Imports SQLExpress.Extensions
 Imports System.Collections.ObjectModel
 #End Region
 Public NotInheritable Class SQLExpressClient
+#Region "Events"
+    Public Event Log(obj As IStoreableObject, logType As LogType)
+#End Region
 #Region "Fields"
     Private _connectionString As String
     Private _database As String
@@ -92,6 +95,11 @@ Public NotInheritable Class SQLExpressClient
     End Property
 #End Region
 #Region "Constructors"
+    ''' <summary>
+    ''' A constructor to stop DI complaining about it.
+    ''' </summary>
+    Sub New()
+    End Sub
     ''' <summary>
     ''' Provide the full connection string.
     ''' </summary>
@@ -367,7 +375,7 @@ Public NotInheritable Class SQLExpressClient
                 Next
             End If
 
-            Log(obj, LogType.Create)
+            If _logEnable Then RaiseEvent Log(obj, LogType.Create)
             Dim newObj = Await LoadObjectAsync(obj).ConfigureAwait(False)
             If _useCache Then If Not Cache.ContainsKey(newObj.Id) Then Cache.TryAdd(newObj.Id, newObj) Else Cache(newObj.Id) = newObj
             Return newObj
@@ -493,7 +501,7 @@ Public NotInheritable Class SQLExpressClient
                                 SetValue(toLoad, UnsignedFix(toLoad, primitivesName(x), r.Item(primitivesName(x))))
                         Next
                     End While
-                    Log(toLoad, LogType.Load)
+                    If _logEnable Then RaiseEvent Log(toLoad, LogType.Load)
                     Return toLoad
                 End Using
             End Using
@@ -560,7 +568,7 @@ Public NotInheritable Class SQLExpressClient
                 If _useCache AndAlso Cache.ContainsKey(toUpdate.Id) Then Cache.TryRemove(toUpdate.Id, Nothing)
                 Dim newObj = Await CreateNewObjectAsync(toUpdate).ConfigureAwait(False)
                 If _useCache AndAlso Cache.ContainsKey(toUpdate.Id) Then Cache(toUpdate.Id) = newObj Else Cache.TryAdd(newObj.Id, newObj)
-                Log(newObj, LogType.Update)
+                If _logEnable Then RaiseEvent Log(newObj, LogType.Update)
                 Return newObj
             End If
         End Using
@@ -588,7 +596,7 @@ Public NotInheritable Class SQLExpressClient
             Await SendQueryAsync($"DELETE FROM _enumerablesOfT WHERE Id = {toRemove.Id};", con).ConfigureAwait(False)
             Await SendQueryAsync($"DELETE FROM _tuplesOfT WHERE Id = {toRemove.Id};", con).ConfigureAwait(False)
             If _useCache AndAlso Cache.ContainsKey(toRemove.Id) Then Cache.TryRemove(toRemove.Id, Nothing)
-            Log(toRemove, LogType.Delete)
+            If _logEnable Then RaiseEvent Log(toRemove, LogType.Delete)
         End Using
     End Function
     ''' <summary>
@@ -1161,29 +1169,6 @@ Public NotInheritable Class SQLExpressClient
         Else
             Return $"{_stringLimit}"
         End If
-    End Function
-
-    Private Sub Log(Of T As {IStoreableObject})(obj As T, logSource As LogType)
-        If Not _logEnable Then Return
-        Console.ForegroundColor = ConsoleColor.Green
-        Console.Write($"[{Date.UtcNow}] [{CenterLog(logSource),-6}] ")
-        Console.ResetColor()
-        Console.WriteLine($"The object of {obj.TableName} ({obj.Id}) has been {ToPast(logSource)}")
-    End Sub
-
-    Private Enum LogType
-        Create
-        Load
-        Update
-        Delete
-    End Enum
-
-    Private Function CenterLog(logSource As LogType) As String
-        Return If(logSource = LogType.Load, " Load ", $"{logSource}")
-    End Function
-
-    Private Function ToPast(logSource As LogType) As String
-        Return If(logSource = LogType.Load, "Loaded", $"{logSource}d")
     End Function
 
 #End Region
