@@ -99,6 +99,8 @@ Friend Module Helpers
     End Function
 
     Friend Function ParseSQLDecimal(obj As Object) As String
+        If obj Is Nothing Then Return Nothing
+
         If TypeOf obj Is Decimal OrElse
            TypeOf obj Is Double OrElse
            TypeOf obj Is Single Then Return obj.ToString.Replace(","c, "."c)

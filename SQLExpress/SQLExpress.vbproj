@@ -11,7 +11,7 @@
     <AssemblyName>SQLExpress</AssemblyName>
     <PackageLicenseUrl>https://github.com/JustNrik/SQLExpress/blob/1.2.7/LICENSE</PackageLicenseUrl>
     <RepositoryUrl>https://github.com/JustNrik/SQLExpress</RepositoryUrl>
-    <Version>1.2.6</Version>
+    <Version>1.2.8</Version>
     <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
     <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
     <Description>Object-Oriented SQL Wrapper</Description>
