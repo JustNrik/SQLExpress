@@ -14,6 +14,11 @@ Imports System.Collections.ObjectModel
 #End Region
 Public NotInheritable Class SQLExpressClient
 #Region "Events"
+    ''' <summary>
+    ''' Hook this event log everything that manipulates the object.
+    ''' </summary>
+    ''' <param name="obj"></param>
+    ''' <param name="logType"></param>
     Public Event Log(obj As IStoreableObject, logType As LogType)
 #End Region
 #Region "Fields"
@@ -729,7 +734,7 @@ Public NotInheritable Class SQLExpressClient
     Public Async Function CheckExistenceAsync(Of T As {IStoreableObject})(obj As T, Optional con As SqlConnection = Nothing) As Task(Of Boolean)
         If con Is Nothing Then
             Using conn As New SqlConnection(_connectionString) : Await conn.OpenAsync.ConfigureAwait(False)
-                Using cmd As New SqlCommand($"SELECT COUNT(Id) FROM {obj.TableName} WHERE Id = {obj.Id};", con)
+                Using cmd As New SqlCommand($"SELECT COUNT(Id) FROM {obj.TableName} WHERE Id = {obj.Id};", conn)
                     Return DirectCast(Await cmd.ExecuteScalarAsync.ConfigureAwait(False), Integer) = 1
                 End Using
             End Using
