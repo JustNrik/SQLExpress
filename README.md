@@ -4,7 +4,7 @@ This is an Object Oriented SQL Wrapper to Save/Load data from objects.
 
 Available on NuGet.
 
-`Install-Package SQLExpress -Version 1.2.8`
+`Install-Package SQLExpress -Version 1.2.9`
 
 # Attributes
 
