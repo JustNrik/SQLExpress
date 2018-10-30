@@ -20,8 +20,9 @@ Friend Module Helpers
         For Each prop In properties.Where(Function(x) IsCollection(x))
             For Each arg In prop.PropertyType.GenericTypeArguments
                 If IsClassOrStruct(arg) Then
-                    Yield DirectCast(arg, IStoreableObject)
-                    For Each type In GetTypes(DirectCast(arg, IStoreableObject))
+                    Dim instance = DirectCast(Activator.CreateInstance(arg), IStoreableObject)
+                    Yield instance
+                    For Each type In GetTypes(instance)
                         If IsClassOrStruct(type.GetType) Then Yield type
                     Next
                 End If
@@ -153,11 +154,6 @@ Friend Module Helpers
         End If
 
         Return value
-    End Function
-
-    Friend Function FixSQLDate(obj As Object) As String
-        Dim fixedDate = obj.ToString.Replace("/"c, "-"c).Replace("a.m.", "AM").Replace("p.m.", "PM")
-        Return $"'{fixedDate}'"
     End Function
 
     Friend Function GetNullableTypeName(propType As Type) As String

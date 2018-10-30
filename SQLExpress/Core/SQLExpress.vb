@@ -32,6 +32,8 @@ Public NotInheritable Class SQLExpressClient
     Private _stringLimit As Integer
     Private _useCache As Boolean
     Private _logEnable As Boolean
+    Private _format As String
+    Private _provider As IFormatProvider
 #End Region
 #Region "Properties"
     ''' <summary>
@@ -52,6 +54,22 @@ Public NotInheritable Class SQLExpressClient
                 Case -1, 1 To 8000 : _stringLimit = Value
                 Case Else : Throw New ArgumentOutOfRangeException("Length must be between 1 and 8000, or -1 if you want to use MAX length instead")
             End Select
+        End Set
+    End Property
+    ''' <summary>
+    ''' Sets the Date Format used to be stored in the database.
+    ''' </summary>
+    Public WriteOnly Property DateFormat As String
+        Set
+            _format = Value
+        End Set
+    End Property
+    ''' <summary>
+    ''' Sets the Date Format Provider to be used for Date Parsing.
+    ''' </summary>
+    Public WriteOnly Property DateFormatProvider As IFormatProvider
+        Set
+            _provider = Value
         End Set
     End Property
     ''' <summary>
@@ -109,27 +127,31 @@ Public NotInheritable Class SQLExpressClient
     ''' Provide the full connection string.
     ''' </summary>
     ''' <param name="config"></param>
-    Sub New(config As SQLExpressConfig)
+    Sub New(config As SQLExpressConfig, Optional provider As IFormatProvider = Nothing)
         With config
             StringLimit = .StringLimit
             _connectionString = .ConnectionString
             _logEnable = .Logging
             _useCache = .UseCache
+            _format = .DateFormat
         End With
+        _provider = If(provider, Globalization.DateTimeFormatInfo.InvariantInfo)
     End Sub
     ''' <summary>
     ''' Reads the config from a XML Document. You must load the XMlDocument before using this method.
     ''' </summary>
     ''' <param name="xmlConfig"></param>
-    Sub New(xmlConfig As XmlDocument)
+    Sub New(xmlConfig As XmlDocument, Optional provider As IFormatProvider = Nothing)
         ReadConfig(xmlConfig)
+        _provider = If(provider, Globalization.DateTimeFormatInfo.InvariantInfo)
     End Sub
     ''' <summary>
     ''' Reads the config from a JSON file. You must parse the JObject before using this method.
     ''' </summary>
     ''' <param name="jConfig"></param>
-    Sub New(jConfig As JObject)
+    Sub New(jConfig As JObject, Optional provider As IFormatProvider = Nothing)
         ReadConfig(jConfig)
+        _provider = If(provider, Globalization.DateTimeFormatInfo.InvariantInfo)
     End Sub
 #End Region
 #Region "Config"
@@ -138,6 +160,7 @@ Public NotInheritable Class SQLExpressClient
         _sqlServer = xmlConfig.SelectSingleNode("*/server").InnerXml
         _username = xmlConfig.SelectSingleNode("*/username").InnerXml
         _password = xmlConfig.SelectSingleNode("*/password").InnerXml
+        _format = xmlConfig.SelectSingleNode("*/dateformat").InnerXml
         _logEnable = Boolean.Parse(xmlConfig.SelectSingleNode("*/enablelogging").InnerXml)
         _useCache = Boolean.Parse(xmlConfig.SelectSingleNode("*/usecache").InnerXml)
         _stringLimit = Integer.Parse(xmlConfig.SelectSingleNode("*/stringlimit").InnerXml)
@@ -149,6 +172,7 @@ Public NotInheritable Class SQLExpressClient
         _sqlServer = $"{jConfig("server")}"
         _username = $"{jConfig("username")}"
         _password = $"{jConfig("password")}"
+        _format = $"{jConfig("dateformat")}"
         _logEnable = Boolean.Parse($"{jConfig("enablelogging")}")
         _useCache = Boolean.Parse($"{jConfig("usecache")}")
         _stringLimit = Integer.Parse($"{jConfig("stringlimit")}")
@@ -202,10 +226,10 @@ Public NotInheritable Class SQLExpressClient
                                                  "ELSE SELECT 1;", con).ConfigureAwait(False) = 0 Then
 
                 Await SendQueryAsync("CREATE TABLE _enumerablesOfT (" & vbCrLf &
-                                     "    Id BIGINT NOT NULL," & vbCrLf &
+                                     "    Id DECIMAL(20,0) NOT NULL," & vbCrLf &
                                      "    ObjName VARCHAR(50) NOT NULL," & vbCrLf &
                                      "    PropName VARCHAR(50) NOT NULL," & vbCrLf &
-                                     "    RawKey INT NOT NULL," & vbCrLf &
+                                     "    RawKey VARCHAR(20) NOT NULL," & vbCrLf &
                                      "    RawValue VARCHAR(50));", con).ConfigureAwait(False)
 
             End If
@@ -214,7 +238,7 @@ Public NotInheritable Class SQLExpressClient
                                                  "ELSE SELECT 1;", con).ConfigureAwait(False) = 0 Then
 
                 Await SendQueryAsync("CREATE TABLE _tuplesOfT (" & vbCrLf &
-                                     "    Id BIGINT NOT NULL," & vbCrLf &
+                                     "    Id DECIMAL(20,0) NOT NULL," & vbCrLf &
                                      "    ObjName VARCHAR(50) NOT NULL," & vbCrLf &
                                      "    PropName VARCHAR(50) NOT NULL," & vbCrLf &
                                      "    Item1 VARCHAR(50)," & vbCrLf &
@@ -234,7 +258,7 @@ Public NotInheritable Class SQLExpressClient
                                       "ELSE SELECT 1;", con) = 0 Then
 
                 SendQuery("CREATE TABLE _enumerablesOfT (" & vbCrLf &
-                          "    Id BIGINT NOT NULL," & vbCrLf &
+                          "    Id DECIMAL(20,0) NOT NULL," & vbCrLf &
                           "    ObjName VARCHAR(50) NOT NULL," & vbCrLf &
                           "    PropName VARCHAR(50) NOT NULL," & vbCrLf &
                           "    RawKey INT NOT NULL," & vbCrLf &
@@ -246,7 +270,7 @@ Public NotInheritable Class SQLExpressClient
                                       "ELSE SELECT 1;", con) = 0 Then
 
                 SendQuery("CREATE TABLE _tuplesOfT (" & vbCrLf &
-                          "    Id BIGINT NOT NULL," & vbCrLf &
+                          "    Id DECIMAL(20,0) NOT NULL," & vbCrLf &
                           "    ObjName VARCHAR(50) NOT NULL," & vbCrLf &
                           "    PropName VARCHAR(50) NOT NULL," & vbCrLf &
                           "    Item1 VARCHAR(50)," & vbCrLf &
@@ -1127,16 +1151,16 @@ Public NotInheritable Class SQLExpressClient
         If IsClassOrStruct(collectionType) Then
             For Each gen In generic
                 Dim toLoad = TryCast(gen, IStoreableObject)
-                If toLoad IsNot Nothing Then
-                    If Not Await CheckExistenceAsync(toLoad, con) Then Await CreateNewObjectAsync(toLoad)
-                Else : Continue For : End If
+                If toLoad Is Nothing Then Continue For
+
+                If Not Await CheckExistenceAsync(toLoad, con) Then Await InnerCreateNewObjectAsync(toLoad, con)
                 Await SendQueryAsync($"INSERT INTO _enumerablesOfT (Id, ObjName, PropName, RawKey, RawValue)" & vbCrLf &
-                                     $"VALUES ({obj.Id}, '{obj.TableName}', '{prop.Name}', {toLoad.Id}, '{toLoad.TableName}');", con)
+                                     $"VALUES ({obj.Id}, '{obj.TableName}', '{prop.Name}', '{toLoad.Id}', '{toLoad.TableName}');", con)
             Next
         Else
             For x = 0 To generic.Count - 1
                 Await SendQueryAsync($"INSERT INTO _enumerablesOfT (Id, ObjName, PropName, RawKey, RawValue)" & vbCrLf &
-                                     $"VALUES ({obj.Id}, '{obj.TableName}', '{prop.Name}', {x}, '{ParseSQLDecimal(generic(x))}');", con)
+                                     $"VALUES ({obj.Id}, '{obj.TableName}', '{prop.Name}', '{x}', '{ParseSQLDecimal(generic(x))}');", con)
             Next
         End If
 
@@ -1197,6 +1221,11 @@ Public NotInheritable Class SQLExpressClient
         Else
             Return $"{_stringLimit}"
         End If
+    End Function
+
+    Private Function FixSQLDate(obj As Object) As String
+        Dim fixedDate = DirectCast(obj, Date).ToString(_format, _provider)
+        Return $"'{fixedDate}'"
     End Function
 
 #End Region
