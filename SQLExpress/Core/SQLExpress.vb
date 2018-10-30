@@ -435,7 +435,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <typeparam name="T"></typeparam>
     ''' <param name="toLoad"></param>
     ''' <returns></returns>
-    Public Async Function LoadObjectAsync(Of T As IStoreableObject)(toLoad As T) As Task(Of T)
+    Public Async Function LoadObjectAsync(Of T As {IStoreableObject})(toLoad As T) As Task(Of T)
         Dim loadedObj = Await InnerLoadObjectAsync(toLoad)
         If _logEnable Then RaiseEvent Log(toLoad, LogType.Load)
         Return loadedObj
@@ -499,7 +499,7 @@ Public NotInheritable Class SQLExpressClient
                     Dim refObj = TryCast(obj.GetValue(toLoad), IStoreableObject)
                     If refObj IsNot Nothing Then
                         refObj.Id = If(refObj.Id = 0, toLoad.Id, refObj.Id)
-                        Dim loadObj = Await InnerLoadObjectAsync(refObj).ConfigureAwait(False)
+                        Dim loadObj = Await InnerLoadObjectAsync(refObj, con).ConfigureAwait(False)
                         toLoad.GetType.GetProperty(obj.Name).SetValue(toLoad, refObj)
                     End If
                 Next
