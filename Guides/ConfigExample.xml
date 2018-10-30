@@ -6,4 +6,5 @@
   <stringlimit>20</stringlimit>
   <usecache>true</usecache>
   <enablelogging>true</enablelogging>
+  <dateformat>MM-dd-yyyy HH:mm:ss tt</dateformat>
 </sqlconfig>
