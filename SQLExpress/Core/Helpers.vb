@@ -114,7 +114,7 @@ Friend Module Helpers
         Using command As New SqlCommand($"SELECT* FROM _enumerablesOfT WHERE Id = {id} And PropName = '{name}'", con)
             Using r = Await command.ExecuteReaderAsync.ConfigureAwait(False)
                 While Await r.ReadAsync.ConfigureAwait(False)
-                    dict.Add(ULong.Parse($"{r.Item(3)}"), ParseSQLDecimal(r.Item(4)))
+                    dict.TryAdd(ULong.Parse($"{r.Item(3)}"), ParseSQLDecimal(r.Item(4)))
                 End While
             End Using
         End Using

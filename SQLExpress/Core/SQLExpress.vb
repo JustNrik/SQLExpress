@@ -475,10 +475,10 @@ Public NotInheritable Class SQLExpressClient
         Dim properties = GetAllStoreablePropierties(toLoad.GetType.GetProperties)
         Dim primitives = GetPrivitimes(properties)
         Dim primitivesName = primitives.Select(Function(x) x.Name)
-        Dim collections = properties.Where(Function(x) IsCollection(x))
+        Dim collections = properties.Where(Function(x) IsCollection(x)).ToImmutableArray
         Dim collectionNames = collections.Select(Function(x) x.Name)
-        Dim types = properties.Where(Function(x) IsClassOrStruct(x))
-        Dim tuples = properties.Where(Function(x) IsTuple(x))
+        Dim types = properties.Where(Function(x) IsClassOrStruct(x)).ToImmutableArray
+        Dim tuples = properties.Where(Function(x) IsTuple(x)).ToImmutableArray
 
         If properties.Length = 0 Then Throw New EmptyObjectException
         If properties.Any(Function(x) x.GetCustomAttribute(Of NotNullAttribute)(True) IsNot Nothing AndAlso
