@@ -346,13 +346,20 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="obj"></param>
     ''' <returns></returns>
     Public Async Function CreateNewObjectAsync(Of T As {IStoreableObject})(obj As T) As Task(Of T)
-        Using con As New SqlConnection(_connectionString) : Await con.OpenAsync.ConfigureAwait(False)
+        Dim newObj = Await InnerCreateNewObjectAsync(obj)
+        If _logEnable Then RaiseEvent Log(newObj, LogType.Create)
+        Return newObj
+    End Function
+
+    Private Async Function InnerCreateNewObjectAsync(Of T As {IStoreableObject})(obj As T, Optional con As SqlConnection = Nothing) As Task(Of T)
+        con = If(con, New SqlConnection(_connectionString))
+        Using con : Await con.OpenAsync.ConfigureAwait(False)
 
             Dim properties = GetAllStoreablePropierties(obj.GetType.GetProperties)
-            Dim primitives = GetPrivitimes(properties).ToImmutableArray
-            Dim collections = properties.Where(Function(x) IsCollection(x)).ToImmutableArray
-            Dim types = properties.Where(Function(x) IsClassOrStruct(x)).ToImmutableArray
-            Dim tuples = properties.Where(Function(x) IsTuple(x)).ToImmutableArray
+            Dim primitives = GetPrivitimes(properties)
+            Dim collections = properties.Where(Function(x) IsCollection(x))
+            Dim types = properties.Where(Function(x) IsClassOrStruct(x))
+            Dim tuples = properties.Where(Function(x) IsTuple(x))
 
             If properties.Length = 0 Then Throw New EmptyObjectException
             If properties.Any(Function(x) x.GetCustomAttribute(Of NotNullAttribute)(True) IsNot Nothing AndAlso
@@ -360,7 +367,7 @@ Public NotInheritable Class SQLExpressClient
 
             Await SendQueryAsync(BuildInsert(obj, primitives, con), con).ConfigureAwait(False)
 
-            If types.Length > 0 Then
+            If types.Count > 0 Then
                 For Each prop In types
                     Dim propObj = TryCast(prop.GetValue(obj), IStoreableObject)
                     If propObj IsNot Nothing AndAlso Not Await CheckObjectExistenceAsync(propObj, con).ConfigureAwait(False) Then _
@@ -368,20 +375,19 @@ Public NotInheritable Class SQLExpressClient
                 Next
             End If
 
-            If collections.Length > 0 Then
+            If collections.Count > 0 Then
                 For Each collection In collections
                     Await InsertCollectionAsync(obj, collection, con)
                 Next
             End If
 
-            If tuples.Length > 0 Then
+            If tuples.Count > 0 Then
                 For Each tuple In tuples
                     Await InsertTupleAsync(obj, tuple, con)
                 Next
             End If
 
-            If _logEnable Then RaiseEvent Log(obj, LogType.Create)
-            Dim newObj = Await LoadObjectAsync(obj).ConfigureAwait(False)
+            Dim newObj = Await InnerLoadObjectAsync(obj, con).ConfigureAwait(False)
             If _useCache Then If Not Cache.ContainsKey(newObj.Id) Then Cache.TryAdd(newObj.Id, newObj) Else Cache(newObj.Id) = newObj
             Return newObj
         End Using
@@ -429,18 +435,25 @@ Public NotInheritable Class SQLExpressClient
     ''' <typeparam name="T"></typeparam>
     ''' <param name="toLoad"></param>
     ''' <returns></returns>
-    Public Async Function LoadObjectAsync(Of T As {IStoreableObject})(toLoad As T) As Task(Of T)
+    Public Async Function LoadObjectAsync(Of T As IStoreableObject)(toLoad As T) As Task(Of T)
+        Dim loadedObj = Await InnerLoadObjectAsync(toLoad)
+        If _logEnable Then RaiseEvent Log(toLoad, LogType.Load)
+        Return loadedObj
+    End Function
+
+    Private Async Function InnerLoadObjectAsync(Of T As {IStoreableObject})(toLoad As T, Optional con As SqlConnection = Nothing) As Task(Of T)
         If _useCache AndAlso Cache.ContainsKey(toLoad.Id) Then Return DirectCast(Cache(toLoad.Id), T)
-        Using con As New SqlConnection(_connectionString) : Await con.OpenAsync.ConfigureAwait(False)
-            If Not Await CheckExistenceAsync(toLoad, con).ConfigureAwait(False) Then Return Await CreateNewObjectAsync(toLoad).ConfigureAwait(False)
+        con = If(con, New SqlConnection(_connectionString))
+        Using con : Await con.OpenAsync.ConfigureAwait(False)
+            If Not Await CheckExistenceAsync(toLoad, con).ConfigureAwait(False) Then Return Await InnerCreateNewObjectAsync(toLoad, con).ConfigureAwait(False)
 
             Dim properties = GetAllStoreablePropierties(toLoad.GetType.GetProperties)
-            Dim primitives = GetPrivitimes(properties).ToImmutableArray
-            Dim primitivesName = primitives.Select(Function(x) x.Name).ToImmutableArray
-            Dim collections = properties.Where(Function(x) IsCollection(x)).ToImmutableArray
-            Dim collectionNames = collections.Select(Function(x) x.Name).ToImmutableArray
-            Dim types = properties.Where(Function(x) IsClassOrStruct(x)).ToImmutableArray
-            Dim tuples = properties.Where(Function(x) IsTuple(x)).ToImmutableArray
+            Dim primitives = GetPrivitimes(properties)
+            Dim primitivesName = primitives.Select(Function(x) x.Name)
+            Dim collections = properties.Where(Function(x) IsCollection(x))
+            Dim collectionNames = collections.Select(Function(x) x.Name)
+            Dim types = properties.Where(Function(x) IsClassOrStruct(x))
+            Dim tuples = properties.Where(Function(x) IsTuple(x))
 
             If properties.Length = 0 Then Throw New EmptyObjectException
             If properties.Any(Function(x) x.GetCustomAttribute(Of NotNullAttribute)(True) IsNot Nothing AndAlso
@@ -449,7 +462,7 @@ Public NotInheritable Class SQLExpressClient
             If Not _enumFlag Then _enumFlag = Await SendScalarAsync(Of Integer)("SELECT COUNT(Id) FROM _enumerablesOfT", con).ConfigureAwait(False) > 0
             If Not _tupleFlag Then _tupleFlag = Await SendScalarAsync(Of Integer)("SELECT COUNT(Id) FROM _tuplesOfT", con).ConfigureAwait(False) > 0
 
-            If collectionNames.Length > 0 AndAlso _enumFlag Then
+            If collectionNames.Count > 0 AndAlso _enumFlag Then
                 Dim collection As New List(Of ICollection(Of KeyValuePair(Of ULong, String)))
                 For Each collectionName In collectionNames
                     collection.Add(Await GetCollectionAsync(toLoad.Id, collectionName, con).ConfigureAwait(False))
@@ -458,7 +471,7 @@ Public NotInheritable Class SQLExpressClient
                 collection.RemoveAll(Function(x) x Is Nothing)
 
                 If collection.Count > 0 Then
-                    For x = 0 To collectionNames.Length - 1
+                    For x = 0 To collectionNames.Count - 1
                         Dim [property] = toLoad.GetType.GetProperty(collectionNames(x))
                         Dim temp = [property].PropertyType.GenericTypeArguments.Where(Function(y) IsClassOrStruct(y))
 
@@ -470,7 +483,7 @@ Public NotInheritable Class SQLExpressClient
                                 For Each key In keys
                                     Dim instance = DirectCast(Activator.CreateInstance(item), IStoreableObject)
                                     If instance Is Nothing Then Continue For Else instance.Id = key
-                                    newCol.Add(Await LoadObjectAsync(instance))
+                                    newCol.Add(Await InnerLoadObjectAsync(instance, con))
                                 Next
                                 [property].SetValue(toLoad, ParseCollection(newCol, toLoad, [property].Name))
                             Next
@@ -481,18 +494,18 @@ Public NotInheritable Class SQLExpressClient
                 End If
             End If
 
-            If types.Length > 0 Then
+            If types.Count > 0 Then
                 For Each obj In types
                     Dim refObj = TryCast(obj.GetValue(toLoad), IStoreableObject)
                     If refObj IsNot Nothing Then
                         refObj.Id = If(refObj.Id = 0, toLoad.Id, refObj.Id)
-                        Dim loadObj = Await LoadObjectAsync(refObj).ConfigureAwait(False)
+                        Dim loadObj = Await InnerLoadObjectAsync(refObj).ConfigureAwait(False)
                         toLoad.GetType.GetProperty(obj.Name).SetValue(toLoad, refObj)
                     End If
                 Next
             End If
 
-            If tuples.Length > 0 AndAlso _tupleFlag Then
+            If tuples.Count > 0 AndAlso _tupleFlag Then
                 For Each tuple In tuples
                     tuple.SetValue(toLoad, Await GetTuple(toLoad, tuple, con))
                 Next
@@ -506,7 +519,6 @@ Public NotInheritable Class SQLExpressClient
                                 SetValue(toLoad, UnsignedFix(toLoad, primitivesName(x), r.Item(primitivesName(x))))
                         Next
                     End While
-                    If _logEnable Then RaiseEvent Log(toLoad, LogType.Load)
                     Return toLoad
                 End Using
             End Using
@@ -565,15 +577,20 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="toUpdate"></param>
     ''' <returns></returns>
     Public Async Function UpdateObjectAsync(Of T As {IStoreableObject})(toUpdate As T) As Task(Of T)
+        Dim updatedObj = Await InnerUpdateObjectAsync(toUpdate)
+        If _logEnable Then RaiseEvent Log(updatedObj, LogType.Update)
+        Return updatedObj
+    End Function
+
+    Private Async Function InnerUpdateObjectAsync(Of T As {IStoreableObject})(toUpdate As T) As Task(Of T)
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync.ConfigureAwait(False)
             If Not Await CheckExistenceAsync(toUpdate, con).ConfigureAwait(False) Then
-                Return Await CreateNewObjectAsync(toUpdate).ConfigureAwait(False)
+                Return Await InnerCreateNewObjectAsync(toUpdate, con).ConfigureAwait(False)
             Else
-                Await RemoveObjectAsync(toUpdate).ConfigureAwait(False)
+                Await InnerRemoveObjectAsync(toUpdate, con).ConfigureAwait(False)
                 If _useCache AndAlso Cache.ContainsKey(toUpdate.Id) Then Cache.TryRemove(toUpdate.Id, Nothing)
-                Dim newObj = Await CreateNewObjectAsync(toUpdate).ConfigureAwait(False)
+                Dim newObj = Await InnerCreateNewObjectAsync(toUpdate).ConfigureAwait(False)
                 If _useCache AndAlso Cache.ContainsKey(toUpdate.Id) Then Cache(toUpdate.Id) = newObj Else Cache.TryAdd(newObj.Id, newObj)
-                If _logEnable Then RaiseEvent Log(newObj, LogType.Update)
                 Return newObj
             End If
         End Using
@@ -595,13 +612,18 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="toRemove"></param>
     ''' <returns></returns>
     Public Async Function RemoveObjectAsync(Of T As {IStoreableObject})(toRemove As T) As Task
-        Using con As New SqlConnection(_connectionString) : Await con.OpenAsync.ConfigureAwait(False)
+        Await InnerRemoveObjectAsync(toRemove)
+        If _logEnable Then RaiseEvent Log(toRemove, LogType.Delete)
+    End Function
+
+    Private Async Function InnerRemoveObjectAsync(Of T As {IStoreableObject})(toRemove As T, Optional con As SqlConnection = Nothing) As Task
+        con = If(con, New SqlConnection(_connectionString))
+        Using con : Await con.OpenAsync.ConfigureAwait(False)
             If Not Await CheckExistenceAsync(toRemove, con).ConfigureAwait(False) Then Return
             Await SendQueryAsync($"DELETE FROM {toRemove.TableName} WHERE Id = {toRemove.Id};", con).ConfigureAwait(False)
             Await SendQueryAsync($"DELETE FROM _enumerablesOfT WHERE Id = {toRemove.Id};", con).ConfigureAwait(False)
             Await SendQueryAsync($"DELETE FROM _tuplesOfT WHERE Id = {toRemove.Id};", con).ConfigureAwait(False)
             If _useCache AndAlso Cache.ContainsKey(toRemove.Id) Then Cache.TryRemove(toRemove.Id, Nothing)
-            If _logEnable Then RaiseEvent Log(toRemove, LogType.Delete)
         End Using
     End Function
     ''' <summary>
