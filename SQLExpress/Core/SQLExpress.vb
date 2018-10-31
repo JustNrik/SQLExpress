@@ -1141,12 +1141,12 @@ Public NotInheritable Class SQLExpressClient
                                                With parameter
                                                    If .DbType = DbType.Decimal AndAlso
                                                    _specialTypes.Any(Function(x) x = typeName) Then
-                                                       .Precision = 0
+                                                       .Scale = 0
                                                        Select Case typeName
-                                                           Case "UInt64" : .Scale = 20
-                                                           Case "UInt32" : .Scale = 10
-                                                           Case "UInt16" : .Scale = 5
-                                                           Case "SByte" : .Scale = 3
+                                                           Case "UInt64" : .Precision = 20
+                                                           Case "UInt32" : .Precision = 10
+                                                           Case "UInt16" : .Precision = 5
+                                                           Case "SByte" : .Precision = 3
                                                        End Select
                                                    End If
                                                End With
