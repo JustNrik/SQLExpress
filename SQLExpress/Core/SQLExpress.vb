@@ -630,6 +630,7 @@ Public NotInheritable Class SQLExpressClient
             Return newObj
         End If
     End Function
+
     ''' <summary>
     ''' Updates the Object, creates a new one if it doesn't exist.
     ''' </summary>
@@ -769,7 +770,7 @@ Public NotInheritable Class SQLExpressClient
                 Using cmd As New SqlCommand(query, conn)
                     Using r = cmd.ExecuteReader
                         While r.Read
-                            Yield If(IsDBNull(r.Item(0)), Nothing, If(TypeOf r.Item(0) Is T, DirectCast(r.Item(0), T), CType(r.Item(0), T)))
+                            Yield If(IsDBNull(r.Item(0)), Nothing, DirectCast(r.Item(0), T))
                         End While
                     End Using
                 End Using
@@ -778,7 +779,7 @@ Public NotInheritable Class SQLExpressClient
             Using cmd As New SqlCommand(query, con)
                 Using r = cmd.ExecuteReader
                     While r.Read
-                        Yield If(IsDBNull(r.Item(0)), Nothing, If(TypeOf r.Item(0) Is T, DirectCast(r.Item(0), T), CType(r.Item(0), T)))
+                        Yield If(IsDBNull(r.Item(0)), Nothing, DirectCast(r.Item(0), T))
                     End While
                 End Using
             End Using
@@ -1216,7 +1217,7 @@ Public NotInheritable Class SQLExpressClient
                                      $"VALUES ({obj.Id}, '{obj.TableName}', '{prop.Name}', '{toLoad.Id}', '{toLoad.TableName}');",, con)
             Next
         Else
-            For x = 0 To generic.Count - 1
+            For x = 0 To generic.count - 1
                 Await SendQueryAsync($"INSERT INTO _enumerablesOfT (Id, ObjName, PropName, RawKey, RawValue)" & vbCrLf &
                                      $"VALUES ({obj.Id}, '{obj.TableName}', '{prop.Name}', '{x}', '{ParseSQLDecimal(generic(x))}');",, con)
             Next
