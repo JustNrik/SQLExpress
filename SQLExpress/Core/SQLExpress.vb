@@ -1217,7 +1217,7 @@ Public NotInheritable Class SQLExpressClient
                                      $"VALUES ({obj.Id}, '{obj.TableName}', '{prop.Name}', '{toLoad.Id}', '{toLoad.TableName}');",, con)
             Next
         Else
-            For x = 0 To generic.count - 1
+            For x = 0 To generic.Count - 1
                 Await SendQueryAsync($"INSERT INTO _enumerablesOfT (Id, ObjName, PropName, RawKey, RawValue)" & vbCrLf &
                                      $"VALUES ({obj.Id}, '{obj.TableName}', '{prop.Name}', '{x}', '{ParseSQLDecimal(generic(x))}');",, con)
             Next
