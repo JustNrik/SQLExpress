@@ -36,6 +36,7 @@ Public NotInheritable Class SQLExpressClient
     Private _format As String
     Private _provider As IFormatProvider
     Private ReadOnly _specialTypes As String() = {"UInt16", "UInt32", "UInt64", "SByte"}
+    Private ReadOnly _dict As New ConcurrentDictionary(Of ULong, ImmutableArray(Of PropertyInfo))
 #End Region
 #Region "Properties"
     ''' <summary>
@@ -381,7 +382,10 @@ Public NotInheritable Class SQLExpressClient
     End Function
 
     Private Async Function InnerCreateNewObjectAsync(Of T As {IStoreableObject})(obj As T, con As SqlConnection) As Task(Of T)
-        Dim properties = GetAllStoreablePropierties(obj.GetType.GetProperties)
+        Dim properties As New ImmutableArray(Of PropertyInfo)
+
+        If Not (_useCache OrElse _dict.TryGetValue(obj.Id, properties)) Then properties = GetAllStoreablePropierties(obj.GetType.GetProperties)
+
         Dim primitives = GetPrivitimes(properties)
         Dim collections = properties.Where(Function(x) IsCollection(x))
         Dim types = properties.Where(Function(x) IsClassOrStruct(x))
@@ -475,13 +479,16 @@ Public NotInheritable Class SQLExpressClient
 
         If Not Await CheckExistenceAsync(toLoad, con).ConfigureAwait(False) Then Return Await InnerCreateNewObjectAsync(toLoad, con).ConfigureAwait(False)
 
-        Dim properties = GetAllStoreablePropierties(toLoad.GetType.GetProperties)
+        Dim properties As New ImmutableArray(Of PropertyInfo)
+
+        If Not (_useCache OrElse _dict.TryGetValue(toLoad.Id, properties)) Then properties = GetAllStoreablePropierties(toLoad.GetType.GetProperties)
+
         Dim primitives = GetPrivitimes(properties)
         Dim primitivesName = primitives.Select(Function(x) x.Name)
-        Dim collections = properties.Where(Function(x) IsCollection(x)).ToImmutableArray
+        Dim collections = properties.Where(Function(x) IsCollection(x))
         Dim collectionNames = collections.Select(Function(x) x.Name)
-        Dim types = properties.Where(Function(x) IsClassOrStruct(x)).ToImmutableArray
-        Dim tuples = properties.Where(Function(x) IsTuple(x)).ToImmutableArray
+        Dim types = properties.Where(Function(x) IsClassOrStruct(x))
+        Dim tuples = properties.Where(Function(x) IsTuple(x))
 
         If properties.Length = 0 Then Throw New EmptyObjectException
         If properties.Any(Function(x) x.GetCustomAttribute(Of NotNullAttribute)(True) IsNot Nothing AndAlso
@@ -652,7 +659,10 @@ Public NotInheritable Class SQLExpressClient
         Await SendQueryAsync($"DELETE FROM {toRemove.TableName} WHERE Id = {toRemove.Id};",, con).ConfigureAwait(False)
         Await SendQueryAsync($"DELETE FROM _enumerablesOfT WHERE Id = {toRemove.Id};",, con).ConfigureAwait(False)
         Await SendQueryAsync($"DELETE FROM _tuplesOfT WHERE Id = {toRemove.Id};",, con).ConfigureAwait(False)
-        If _useCache AndAlso Cache.ContainsKey(toRemove.Id) Then Cache.TryRemove(toRemove.Id, Nothing)
+        If _useCache AndAlso Cache.ContainsKey(toRemove.Id) Then
+            Cache.TryRemove(toRemove.Id, Nothing)
+            _dict.TryRemove(toRemove.Id, Nothing)
+        End If
     End Function
     ''' <summary>
     ''' Removes the Object if exists
@@ -1129,7 +1139,7 @@ Public NotInheritable Class SQLExpressClient
         Return sb.ToString
     End Function
 
-    Private Function BuildInsert(Of T As {IStoreableObject})(obj As T, properties As ImmutableArray(Of PropertyInfo), con As SqlConnection) As (query As String, parameters As SqlParameter())
+    Private Function BuildInsert(Of T As {IStoreableObject})(obj As T, properties As IEnumerable(Of PropertyInfo), con As SqlConnection) As (query As String, parameters As SqlParameter())
         Dim parameters = properties.Select(Function(p)
                                                Dim parameter As New SqlParameter With
                                                {
