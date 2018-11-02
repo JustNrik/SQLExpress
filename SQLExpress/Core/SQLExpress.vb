@@ -194,7 +194,7 @@ Public NotInheritable Class SQLExpressClient
             For Each obj In objs
                 If Not Await CheckObjectExistenceAsync(obj, con).ConfigureAwait(False) Then
                     Await SendQueryAsync(BuildTable(obj),, con).ConfigureAwait(False)
-                    Dim innerObjs = GetTypes(obj).Distinct.ToImmutableArray
+                    Dim innerObjs = GetTypes(obj).Distinct.ToArray
                     For Each innerObj In innerObjs
                         If Not Await CheckObjectExistenceAsync(innerObj, con) Then _
                             Await SendQueryAsync(BuildTable(innerObj),, con).ConfigureAwait(False)
@@ -382,9 +382,9 @@ Public NotInheritable Class SQLExpressClient
     End Function
 
     Private Async Function InnerCreateNewObjectAsync(Of T As {IStoreableObject})(obj As T, con As SqlConnection) As Task(Of T)
-        Dim properties As New ImmutableArray(Of PropertyInfo)
+        Dim properties As ImmutableArray(Of PropertyInfo) = Nothing
 
-        If Not (_useCache OrElse _dict.TryGetValue(obj.Id, properties)) Then properties = GetAllStoreablePropierties(obj.GetType.GetProperties)
+        If Not (_useCache AndAlso _dict.TryGetValue(obj.Id, properties)) Then properties = GetAllStoreablePropierties(obj.GetType.GetProperties)
 
         Dim primitives = GetPrivitimes(properties)
         Dim collections = properties.Where(Function(x) IsCollection(x))
@@ -481,7 +481,7 @@ Public NotInheritable Class SQLExpressClient
 
         Dim properties As New ImmutableArray(Of PropertyInfo)
 
-        If Not (_useCache OrElse _dict.TryGetValue(toLoad.Id, properties)) Then properties = GetAllStoreablePropierties(toLoad.GetType.GetProperties)
+        If Not (_useCache AndAlso _dict.TryGetValue(toLoad.Id, properties)) Then properties = GetAllStoreablePropierties(toLoad.GetType.GetProperties)
 
         Dim primitives = GetPrivitimes(properties)
         Dim primitivesName = primitives.Select(Function(x) x.Name)
@@ -1139,7 +1139,7 @@ Public NotInheritable Class SQLExpressClient
         Return sb.ToString
     End Function
 
-    Private Function BuildInsert(Of T As {IStoreableObject})(obj As T, properties As IEnumerable(Of PropertyInfo), con As SqlConnection) As (query As String, parameters As SqlParameter())
+    Private Function BuildInsert(Of T As {IStoreableObject})(obj As T, properties As ImmutableArray(Of PropertyInfo), con As SqlConnection) As (query As String, parameters As SqlParameter())
         Dim parameters = properties.Select(Function(p)
                                                Dim parameter As New SqlParameter With
                                                {
@@ -1175,7 +1175,7 @@ Public NotInheritable Class SQLExpressClient
             Case "UInt16" : Return DbType.Decimal
             Case "Int16" : Return DbType.Int16
             Case "Boolean" : Return DbType.Boolean
-            Case "String" : Return DbType.StringFixedLength
+            Case "String" : Return DbType.AnsiString
             Case "Byte" : Return DbType.Byte
             Case "SByte" : Return DbType.Decimal
             Case "Decimal" : Return DbType.Decimal
