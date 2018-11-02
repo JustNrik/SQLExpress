@@ -189,7 +189,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <typeparam name="T"></typeparam>
     ''' <param name="objs"></param>
     ''' <returns></returns>
-    Public Async Function InitialiseObjectsAsync(Of T As {IStoreableObject})(ParamArray objs As T()) As Task
+    Public Async Function InitialiseObjectsAsync(Of T As IStoreableObject)(ParamArray objs As T()) As Task
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync.ConfigureAwait(False)
             For Each obj In objs
                 If Not Await CheckObjectExistenceAsync(obj, con).ConfigureAwait(False) Then
@@ -208,7 +208,7 @@ Public NotInheritable Class SQLExpressClient
     ''' </summary>
     ''' <typeparam name="T"></typeparam>
     ''' <param name="objs"></param>
-    Public Sub InitialiseObjects(Of T As {IStoreableObject})(ParamArray objs As T())
+    Public Sub InitialiseObjects(Of T As IStoreableObject)(ParamArray objs As T())
         Using con As New SqlConnection(_connectionString) : con.Open()
             For Each obj In objs
                 If Not CheckObjectExistence(obj, con) Then
@@ -329,7 +329,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <typeparam name="T"></typeparam>
     ''' <param name="objs"></param>
     ''' <returns></returns>
-    Public Async Function LoadObjectsCacheAsync(Of T As {IStoreableObject})(ParamArray objs As T()) As Task
+    Public Async Function LoadObjectsCacheAsync(Of T As IStoreableObject)(ParamArray objs As T()) As Task
         If Not _useCache Then Throw New CacheDisabledException
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync.ConfigureAwait(False)
             For Each obj In objs
@@ -349,7 +349,7 @@ Public NotInheritable Class SQLExpressClient
     ''' </summary>
     ''' <typeparam name="T"></typeparam>
     ''' <param name="objs"></param>
-    Public Sub LoadObjectsCache(Of T As {IStoreableObject})(ParamArray objs As T())
+    Public Sub LoadObjectsCache(Of T As IStoreableObject)(ParamArray objs As T())
         If Not _useCache Then Throw New CacheDisabledException
         Using con As New SqlConnection(_connectionString) : con.Open()
             For Each obj In objs
@@ -372,7 +372,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <typeparam name="T"></typeparam>
     ''' <param name="obj"></param>
     ''' <returns></returns>
-    Public Async Function CreateNewObjectAsync(Of T As {IStoreableObject})(obj As T) As Task(Of T)
+    Public Async Function CreateNewObjectAsync(Of T As IStoreableObject)(obj As T) As Task(Of T)
         Using con As New SqlConnection(_connectionString)
             Await con.OpenAsync().ConfigureAwait(False)
             Dim newObj = Await InnerCreateNewObjectAsync(obj, con)
@@ -381,7 +381,7 @@ Public NotInheritable Class SQLExpressClient
         End Using
     End Function
 
-    Private Async Function InnerCreateNewObjectAsync(Of T As {IStoreableObject})(obj As T, con As SqlConnection) As Task(Of T)
+    Private Async Function InnerCreateNewObjectAsync(Of T As IStoreableObject)(obj As T, con As SqlConnection) As Task(Of T)
         Dim properties As ImmutableArray(Of PropertyInfo) = Nothing
 
         If Not (_useCache AndAlso _dict.TryGetValue(obj.Id, properties)) Then properties = GetAllStoreablePropierties(obj.GetType.GetProperties)
@@ -465,7 +465,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <typeparam name="T"></typeparam>
     ''' <param name="toLoad"></param>
     ''' <returns></returns>
-    Public Async Function LoadObjectAsync(Of T As {IStoreableObject})(toLoad As T) As Task(Of T)
+    Public Async Function LoadObjectAsync(Of T As IStoreableObject)(toLoad As T) As Task(Of T)
         Using con As New SqlConnection(_connectionString)
             Await con.OpenAsync().ConfigureAwait(False)
             Dim loadedObj = Await InnerLoadObjectAsync(toLoad, con)
@@ -474,7 +474,7 @@ Public NotInheritable Class SQLExpressClient
         End Using
     End Function
 
-    Private Async Function InnerLoadObjectAsync(Of T As {IStoreableObject})(toLoad As T, con As SqlConnection) As Task(Of T)
+    Private Async Function InnerLoadObjectAsync(Of T As IStoreableObject)(toLoad As T, con As SqlConnection) As Task(Of T)
         If _useCache AndAlso Cache.ContainsKey(toLoad.Id) Then Return DirectCast(Cache(toLoad.Id), T)
 
         If Not Await CheckExistenceAsync(toLoad, con).ConfigureAwait(False) Then Return Await InnerCreateNewObjectAsync(toLoad, con).ConfigureAwait(False)
@@ -575,7 +575,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <typeparam name="T"></typeparam>
     ''' <param name="obj"></param>
     ''' <returns></returns>
-    Public Function LoadObject(Of T As {IStoreableObject})(obj As T) As T
+    Public Function LoadObject(Of T As IStoreableObject)(obj As T) As T
         Return If(_useCache AndAlso Cache.ContainsKey(obj.Id),
             DirectCast(Cache(obj.Id), T),
             LoadObjectAsync(obj).Result)
@@ -610,7 +610,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <typeparam name="T"></typeparam>
     ''' <param name="toUpdate"></param>
     ''' <returns></returns>
-    Public Async Function UpdateObjectAsync(Of T As {IStoreableObject})(toUpdate As T) As Task(Of T)
+    Public Async Function UpdateObjectAsync(Of T As IStoreableObject)(toUpdate As T) As Task(Of T)
         Using con As New SqlConnection(_connectionString)
             Await con.OpenAsync().ConfigureAwait(False)
             Dim updatedObj = Await InnerUpdateObjectAsync(toUpdate, con)
@@ -619,7 +619,7 @@ Public NotInheritable Class SQLExpressClient
         End Using
     End Function
 
-    Private Async Function InnerUpdateObjectAsync(Of T As {IStoreableObject})(toUpdate As T, con As SqlConnection) As Task(Of T)
+    Private Async Function InnerUpdateObjectAsync(Of T As IStoreableObject)(toUpdate As T, con As SqlConnection) As Task(Of T)
         If Not Await CheckExistenceAsync(toUpdate, con).ConfigureAwait(False) Then
             Return Await InnerCreateNewObjectAsync(toUpdate, con).ConfigureAwait(False)
         Else
@@ -647,7 +647,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <typeparam name="T"></typeparam>
     ''' <param name="toRemove"></param>
     ''' <returns></returns>
-    Public Async Function RemoveObjectAsync(Of T As {IStoreableObject})(toRemove As T) As Task
+    Public Async Function RemoveObjectAsync(Of T As IStoreableObject)(toRemove As T) As Task
         Using con As New SqlConnection(_connectionString)
             Await con.OpenAsync().ConfigureAwait(False)
             Await InnerRemoveObjectAsync(toRemove, con)
@@ -655,7 +655,7 @@ Public NotInheritable Class SQLExpressClient
         End Using
     End Function
 
-    Private Async Function InnerRemoveObjectAsync(Of T As {IStoreableObject})(toRemove As T, con As SqlConnection) As Task
+    Private Async Function InnerRemoveObjectAsync(Of T As IStoreableObject)(toRemove As T, con As SqlConnection) As Task
         If Not Await CheckExistenceAsync(toRemove, con).ConfigureAwait(False) Then Return
         Await SendQueryAsync($"DELETE FROM {toRemove.TableName} WHERE Id = {toRemove.Id};",, con).ConfigureAwait(False)
         Await SendQueryAsync($"DELETE FROM _enumerablesOfT WHERE Id = {toRemove.Id};",, con).ConfigureAwait(False)
@@ -679,7 +679,7 @@ Public NotInheritable Class SQLExpressClient
     ''' </summary>
     ''' <typeparam name="T"></typeparam>
     ''' <param name="toRemove"></param>
-    Public Sub RemoveObject(Of T As {IStoreableObject})(toRemove As T)
+    Public Sub RemoveObject(Of T As IStoreableObject)(toRemove As T)
         RemoveObjectAsync(toRemove).Wait()
     End Sub
     ''' <summary>
@@ -770,7 +770,7 @@ Public NotInheritable Class SQLExpressClient
                 Using cmd As New SqlCommand(query, conn)
                     Using r = cmd.ExecuteReader
                         While r.Read
-                            Yield If(IsDBNull(r.Item(0)), Nothing, DirectCast(r.Item(0), T))
+                            Yield If(IsDBNull(r.Item(0)), Nothing, CType(r.Item(0), T))
                         End While
                     End Using
                 End Using
@@ -779,7 +779,7 @@ Public NotInheritable Class SQLExpressClient
             Using cmd As New SqlCommand(query, con)
                 Using r = cmd.ExecuteReader
                     While r.Read
-                        Yield If(IsDBNull(r.Item(0)), Nothing, DirectCast(r.Item(0), T))
+                        Yield If(IsDBNull(r.Item(0)), Nothing, CType(r.Item(0), T))
                     End While
                 End Using
             End Using
@@ -794,7 +794,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="obj"></param>
     ''' <param name="con"></param>
     ''' <returns></returns>
-    Public Async Function CheckExistenceAsync(Of T As {IStoreableObject})(obj As T, Optional con As SqlConnection = Nothing) As Task(Of Boolean)
+    Public Async Function CheckExistenceAsync(Of T As IStoreableObject)(obj As T, Optional con As SqlConnection = Nothing) As Task(Of Boolean)
         If con Is Nothing Then
             Using conn As New SqlConnection(_connectionString) : Await conn.OpenAsync.ConfigureAwait(False)
                 Using cmd As New SqlCommand($"SELECT COUNT(Id) FROM {obj.TableName} WHERE Id = {obj.Id};", conn)
@@ -813,7 +813,7 @@ Public NotInheritable Class SQLExpressClient
     ''' <typeparam name="T"></typeparam>
     ''' <param name="obj"></param>
     ''' <returns></returns>
-    Public Function CheckExistence(Of T As {IStoreableObject})(obj As T, Optional con As SqlConnection = Nothing) As Boolean
+    Public Function CheckExistence(Of T As IStoreableObject)(obj As T, Optional con As SqlConnection = Nothing) As Boolean
         Return CheckExistenceAsync(obj, con).Result
     End Function
     ''' <summary>
@@ -839,7 +839,7 @@ Public NotInheritable Class SQLExpressClient
     End Function
 #End Region
 #Region "Private Methods"
-    Private Function ParseCollection(Of T As {IStoreableObject})(col As IList, obj As T, name As String) As Object
+    Private Function ParseCollection(Of T As IStoreableObject)(col As IList, obj As T, name As String) As Object
         Dim propType = obj.GetType.GetProperty(name).PropertyType
         Dim propName = propType.Name
         Dim typeName = If(propName.Contains("`"c), propName.Substring(0, propName.IndexOf("`"c)), propName)
@@ -885,9 +885,9 @@ Public NotInheritable Class SQLExpressClient
                     Case "Decimal" : Return [Enum].Select(Function(x) Decimal.Parse(x.Value)).ToList
                     Case "Double" : Return [Enum].Select(Function(x) Double.Parse(x.Value)).ToList
                     Case "Single" : Return [Enum].Select(Function(x) Single.Parse(x.Value)).ToList
-                    Case "DateTime" : Return [Enum].Select(Function(x) Date.Parse(x.Value)).ToList
-                    Case "DateTimeOffset" : Return [Enum].Select(Function(x) DateTimeOffset.Parse(x.Value)).ToList
-                    Case "TimeSpan" : Return [Enum].Select(Function(x) TimeSpan.Parse(x.Value)).ToList
+                    Case "DateTime" : Return [Enum].Select(Function(x) Date.Parse(x.Value, _provider)).ToList
+                    Case "DateTimeOffset" : Return [Enum].Select(Function(x) DateTimeOffset.Parse(x.Value, _provider)).ToList
+                    Case "TimeSpan" : Return [Enum].Select(Function(x) TimeSpan.Parse(x.Value, _provider)).ToList
                 End Select
             Case "ImmutableList", "IImmutableList"
                 Select Case type
@@ -904,9 +904,9 @@ Public NotInheritable Class SQLExpressClient
                     Case "Decimal" : Return [Enum].Select(Function(x) Decimal.Parse(x.Value)).ToImmutableList
                     Case "Double" : Return [Enum].Select(Function(x) Double.Parse(x.Value)).ToImmutableList
                     Case "Single" : Return [Enum].Select(Function(x) Single.Parse(x.Value)).ToImmutableList
-                    Case "DateTime" : Return [Enum].Select(Function(x) Date.Parse(x.Value)).ToImmutableList
-                    Case "DateTimeOffset" : Return [Enum].Select(Function(x) DateTimeOffset.Parse(x.Value)).ToImmutableList
-                    Case "TimeSpan" : Return [Enum].Select(Function(x) TimeSpan.Parse(x.Value)).ToImmutableList
+                    Case "DateTime" : Return [Enum].Select(Function(x) Date.Parse(x.Value, _provider)).ToImmutableList
+                    Case "DateTimeOffset" : Return [Enum].Select(Function(x) DateTimeOffset.Parse(x.Value, _provider)).ToImmutableList
+                    Case "TimeSpan" : Return [Enum].Select(Function(x) TimeSpan.Parse(x.Value, _provider)).ToImmutableList
                 End Select
             Case "Collection", "ICollection"
                 Select Case type
@@ -923,9 +923,9 @@ Public NotInheritable Class SQLExpressClient
                     Case "Decimal" : Return [Enum].Select(Function(x) Decimal.Parse(x.Value))
                     Case "Double" : Return [Enum].Select(Function(x) Double.Parse(x.Value))
                     Case "Single" : Return [Enum].Select(Function(x) Single.Parse(x.Value))
-                    Case "DateTime" : Return [Enum].Select(Function(x) Date.Parse(x.Value))
-                    Case "DateTimeOffset" : Return [Enum].Select(Function(x) DateTimeOffset.Parse(x.Value))
-                    Case "TimeSpan" : Return [Enum].Select(Function(x) TimeSpan.Parse(x.Value))
+                    Case "DateTime" : Return [Enum].Select(Function(x) Date.Parse(x.Value, _provider))
+                    Case "DateTimeOffset" : Return [Enum].Select(Function(x) DateTimeOffset.Parse(x.Value, _provider))
+                    Case "TimeSpan" : Return [Enum].Select(Function(x) TimeSpan.Parse(x.Value, _provider))
                 End Select
             Case "ReadOnlyCollection", "IReadOnlyCollection"
                 Select Case type
@@ -942,9 +942,9 @@ Public NotInheritable Class SQLExpressClient
                     Case "Decimal" : Return New ReadOnlyCollection(Of Decimal)([Enum].Select(Function(x) Decimal.Parse(x.Value)).ToArray)
                     Case "Double" : Return New ReadOnlyCollection(Of Double)([Enum].Select(Function(x) Double.Parse(x.Value)).ToArray)
                     Case "Single" : Return New ReadOnlyCollection(Of Single)([Enum].Select(Function(x) Single.Parse(x.Value)).ToArray)
-                    Case "DateTime" : Return New ReadOnlyCollection(Of Date)([Enum].Select(Function(x) Date.Parse(x.Value)).ToArray)
-                    Case "DateTimeOffset" : Return New ReadOnlyCollection(Of DateTimeOffset)([Enum].Select(Function(x) DateTimeOffset.Parse(x.Value)).ToArray)
-                    Case "TimeSpan" : Return New ReadOnlyCollection(Of TimeSpan)([Enum].Select(Function(x) TimeSpan.Parse(x.Value)).ToArray)
+                    Case "DateTime" : Return New ReadOnlyCollection(Of Date)([Enum].Select(Function(x) Date.Parse(x.Value, _provider)).ToArray)
+                    Case "DateTimeOffset" : Return New ReadOnlyCollection(Of DateTimeOffset)([Enum].Select(Function(x) DateTimeOffset.Parse(x.Value, _provider)).ToArray)
+                    Case "TimeSpan" : Return New ReadOnlyCollection(Of TimeSpan)([Enum].Select(Function(x) TimeSpan.Parse(x.Value, _provider)).ToArray)
                 End Select
             Case "Enumerable", "IEnumerable"
                 Select Case type
@@ -961,9 +961,9 @@ Public NotInheritable Class SQLExpressClient
                     Case "Decimal" : Return [Enum].Select(Function(x) Decimal.Parse(x.Value)).AsEnumerable
                     Case "Double" : Return [Enum].Select(Function(x) Double.Parse(x.Value)).AsEnumerable
                     Case "Single" : Return [Enum].Select(Function(x) Single.Parse(x.Value)).AsEnumerable
-                    Case "DateTime" : Return [Enum].Select(Function(x) Date.Parse(x.Value)).AsEnumerable
-                    Case "DateTimeOffset" : Return [Enum].Select(Function(x) DateTimeOffset.Parse(x.Value)).AsEnumerable
-                    Case "TimeSpan" : Return [Enum].Select(Function(x) TimeSpan.Parse(x.Value)).AsEnumerable
+                    Case "DateTime" : Return [Enum].Select(Function(x) Date.Parse(x.Value, _provider)).AsEnumerable
+                    Case "DateTimeOffset" : Return [Enum].Select(Function(x) DateTimeOffset.Parse(x.Value, _provider)).AsEnumerable
+                    Case "TimeSpan" : Return [Enum].Select(Function(x) TimeSpan.Parse(x.Value, _provider)).AsEnumerable
                 End Select
             Case "Array"
                 Select Case type
@@ -980,9 +980,9 @@ Public NotInheritable Class SQLExpressClient
                     Case "Decimal" : Return [Enum].Select(Function(x) Decimal.Parse(x.Value)).ToArray
                     Case "Double" : Return [Enum].Select(Function(x) Double.Parse(x.Value)).ToArray
                     Case "Single" : Return [Enum].Select(Function(x) Single.Parse(x.Value)).ToArray
-                    Case "DateTime" : Return [Enum].Select(Function(x) Date.Parse(x.Value)).ToArray
-                    Case "DateTimeOffset" : Return [Enum].Select(Function(x) DateTimeOffset.Parse(x.Value)).ToArray
-                    Case "TimeSpan" : Return [Enum].Select(Function(x) TimeSpan.Parse(x.Value)).ToArray
+                    Case "DateTime" : Return [Enum].Select(Function(x) Date.Parse(x.Value, _provider)).ToArray
+                    Case "DateTimeOffset" : Return [Enum].Select(Function(x) DateTimeOffset.Parse(x.Value, _provider)).ToArray
+                    Case "TimeSpan" : Return [Enum].Select(Function(x) TimeSpan.Parse(x.Value, _provider)).ToArray
                 End Select
             Case "ImmutableArray", "IImmutableArray"
                 Select Case type
@@ -999,9 +999,9 @@ Public NotInheritable Class SQLExpressClient
                     Case "Decimal" : Return [Enum].Select(Function(x) Decimal.Parse(x.Value)).ToImmutableArray
                     Case "Double" : Return [Enum].Select(Function(x) Double.Parse(x.Value)).ToImmutableArray
                     Case "Single" : Return [Enum].Select(Function(x) Single.Parse(x.Value)).ToImmutableArray
-                    Case "DateTime" : Return [Enum].Select(Function(x) Date.Parse(x.Value)).ToImmutableArray
-                    Case "DateTimeOffset" : Return [Enum].Select(Function(x) DateTimeOffset.Parse(x.Value)).ToImmutableArray
-                    Case "TimeSpan" : Return [Enum].Select(Function(x) TimeSpan.Parse(x.Value)).ToImmutableArray
+                    Case "DateTime" : Return [Enum].Select(Function(x) Date.Parse(x.Value, _provider)).ToImmutableArray
+                    Case "DateTimeOffset" : Return [Enum].Select(Function(x) DateTimeOffset.Parse(x.Value, _provider)).ToImmutableArray
+                    Case "TimeSpan" : Return [Enum].Select(Function(x) TimeSpan.Parse(x.Value, _provider)).ToImmutableArray
                 End Select
             Case "ImmutableList", "IImmutableList"
                 Select Case type
@@ -1018,9 +1018,9 @@ Public NotInheritable Class SQLExpressClient
                     Case "Decimal" : Return [Enum].Select(Function(x) Decimal.Parse(x.Value)).ToImmutableList
                     Case "Double" : Return [Enum].Select(Function(x) Double.Parse(x.Value)).ToImmutableList
                     Case "Single" : Return [Enum].Select(Function(x) Single.Parse(x.Value)).ToImmutableList
-                    Case "DateTime" : Return [Enum].Select(Function(x) Date.Parse(x.Value)).ToImmutableList
-                    Case "DateTimeOffset" : Return [Enum].Select(Function(x) DateTimeOffset.Parse(x.Value)).ToImmutableList
-                    Case "TimeSpan" : Return [Enum].Select(Function(x) TimeSpan.Parse(x.Value)).ToImmutableList
+                    Case "DateTime" : Return [Enum].Select(Function(x) Date.Parse(x.Value, _provider)).ToImmutableList
+                    Case "DateTimeOffset" : Return [Enum].Select(Function(x) DateTimeOffset.Parse(x.Value, _provider)).ToImmutableList
+                    Case "TimeSpan" : Return [Enum].Select(Function(x) TimeSpan.Parse(x.Value, _provider)).ToImmutableList
                 End Select
             Case "HashSet", "ISet"
                 Select Case type
@@ -1037,9 +1037,9 @@ Public NotInheritable Class SQLExpressClient
                     Case "Decimal" : Return [Enum].Select(Function(x) Decimal.Parse(x.Value)).ToHashSet
                     Case "Double" : Return [Enum].Select(Function(x) Double.Parse(x.Value)).ToHashSet
                     Case "Single" : Return [Enum].Select(Function(x) Single.Parse(x.Value)).ToHashSet
-                    Case "DateTime" : Return [Enum].Select(Function(x) Date.Parse(x.Value)).ToHashSet
-                    Case "DateTimeOffset" : Return [Enum].Select(Function(x) DateTimeOffset.Parse(x.Value)).ToHashSet
-                    Case "TimeSpan" : Return [Enum].Select(Function(x) TimeSpan.Parse(x.Value)).ToHashSet
+                    Case "DateTime" : Return [Enum].Select(Function(x) Date.Parse(x.Value, _provider)).ToHashSet
+                    Case "DateTimeOffset" : Return [Enum].Select(Function(x) DateTimeOffset.Parse(x.Value, _provider)).ToHashSet
+                    Case "TimeSpan" : Return [Enum].Select(Function(x) TimeSpan.Parse(x.Value, _provider)).ToHashSet
                 End Select
             Case "ImmutableHashSet", "IImmutableSet"
                 Select Case type
@@ -1056,9 +1056,9 @@ Public NotInheritable Class SQLExpressClient
                     Case "Decimal" : Return [Enum].Select(Function(x) Decimal.Parse(x.Value)).ToImmutableHashSet
                     Case "Double" : Return [Enum].Select(Function(x) Double.Parse(x.Value)).ToImmutableHashSet
                     Case "Single" : Return [Enum].Select(Function(x) Single.Parse(x.Value)).ToImmutableHashSet
-                    Case "DateTime" : Return [Enum].Select(Function(x) Date.Parse(x.Value)).ToImmutableHashSet
-                    Case "DateTimeOffset" : Return [Enum].Select(Function(x) DateTimeOffset.Parse(x.Value)).ToImmutableHashSet
-                    Case "TimeSpan" : Return [Enum].Select(Function(x) TimeSpan.Parse(x.Value)).ToImmutableHashSet
+                    Case "DateTime" : Return [Enum].Select(Function(x) Date.Parse(x.Value, _provider)).ToImmutableHashSet
+                    Case "DateTimeOffset" : Return [Enum].Select(Function(x) DateTimeOffset.Parse(x.Value, _provider)).ToImmutableHashSet
+                    Case "TimeSpan" : Return [Enum].Select(Function(x) TimeSpan.Parse(x.Value, _provider)).ToImmutableHashSet
                 End Select
             Case "Dictionary", "IDictionary"
                 Select Case typeForDict
@@ -1075,9 +1075,9 @@ Public NotInheritable Class SQLExpressClient
                     Case "Decimal" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Decimal)(x.Key, Decimal.Parse(x.Value))).ToDictionary
                     Case "Double" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Double)(x.Key, Double.Parse(x.Value))).ToDictionary
                     Case "Single" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Single)(x.Key, Single.Parse(x.Value))).ToDictionary
-                    Case "DateTime" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Date)(x.Key, Date.Parse(x.Value))).ToDictionary
-                    Case "DateTimeOffset" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, DateTimeOffset)(x.Key, DateTimeOffset.Parse(x.Value))).ToDictionary
-                    Case "TimeSpan" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, TimeSpan)(x.Key, TimeSpan.Parse(x.Value))).ToDictionary
+                    Case "DateTime" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Date)(x.Key, Date.Parse(x.Value, _provider))).ToDictionary
+                    Case "DateTimeOffset" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, DateTimeOffset)(x.Key, DateTimeOffset.Parse(x.Value, _provider))).ToDictionary
+                    Case "TimeSpan" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, TimeSpan)(x.Key, TimeSpan.Parse(x.Value, _provider))).ToDictionary
                 End Select
             Case "ReadOnlyDictionary", "IReadOnlyDictionary"
                 Select Case typeForDict
@@ -1094,9 +1094,9 @@ Public NotInheritable Class SQLExpressClient
                     Case "Decimal" : Return New ReadOnlyDictionary(Of ULong, Decimal)([Enum].Select(Function(x) New KeyValuePair(Of ULong, Decimal)(x.Key, Decimal.Parse(x.Value))).ToDictionary)
                     Case "Double" : Return New ReadOnlyDictionary(Of ULong, Double)([Enum].Select(Function(x) New KeyValuePair(Of ULong, Double)(x.Key, Double.Parse(x.Value))).ToDictionary)
                     Case "Single" : Return New ReadOnlyDictionary(Of ULong, Single)([Enum].Select(Function(x) New KeyValuePair(Of ULong, Single)(x.Key, Single.Parse(x.Value))).ToDictionary)
-                    Case "DateTime" : Return New ReadOnlyDictionary(Of ULong, Date)([Enum].Select(Function(x) New KeyValuePair(Of ULong, Date)(x.Key, Date.Parse(x.Value))).ToDictionary)
-                    Case "DateTimeOffset" : Return New ReadOnlyDictionary(Of ULong, DateTimeOffset)([Enum].Select(Function(x) New KeyValuePair(Of ULong, DateTimeOffset)(x.Key, DateTimeOffset.Parse(x.Value))).ToDictionary)
-                    Case "TimeSpan" : Return New ReadOnlyDictionary(Of ULong, TimeSpan)([Enum].Select(Function(x) New KeyValuePair(Of ULong, TimeSpan)(x.Key, TimeSpan.Parse(x.Value))).ToDictionary)
+                    Case "DateTime" : Return New ReadOnlyDictionary(Of ULong, Date)([Enum].Select(Function(x) New KeyValuePair(Of ULong, Date)(x.Key, Date.Parse(x.Value, _provider))).ToDictionary)
+                    Case "DateTimeOffset" : Return New ReadOnlyDictionary(Of ULong, DateTimeOffset)([Enum].Select(Function(x) New KeyValuePair(Of ULong, DateTimeOffset)(x.Key, DateTimeOffset.Parse(x.Value, _provider))).ToDictionary)
+                    Case "TimeSpan" : Return New ReadOnlyDictionary(Of ULong, TimeSpan)([Enum].Select(Function(x) New KeyValuePair(Of ULong, TimeSpan)(x.Key, TimeSpan.Parse(x.Value, _provider))).ToDictionary)
                 End Select
             Case "ImmutableDictionary", "IImmutableDictionary"
                 Select Case typeForDict
@@ -1113,15 +1113,15 @@ Public NotInheritable Class SQLExpressClient
                     Case "Decimal" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Decimal)(x.Key, Decimal.Parse(x.Value))).ToImmutableDictionary
                     Case "Double" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Double)(x.Key, Double.Parse(x.Value))).ToImmutableDictionary
                     Case "Single" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Single)(x.Key, Single.Parse(x.Value))).ToImmutableDictionary
-                    Case "DateTime" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Date)(x.Key, Date.Parse(x.Value))).ToImmutableDictionary
-                    Case "DateTimeOffset" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, DateTimeOffset)(x.Key, DateTimeOffset.Parse(x.Value))).ToImmutableDictionary
-                    Case "TimeSpan" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, TimeSpan)(x.Key, TimeSpan.Parse(x.Value))).ToImmutableDictionary
+                    Case "DateTime" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, Date)(x.Key, Date.Parse(x.Value, _provider))).ToImmutableDictionary
+                    Case "DateTimeOffset" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, DateTimeOffset)(x.Key, DateTimeOffset.Parse(x.Value, _provider))).ToImmutableDictionary
+                    Case "TimeSpan" : Return [Enum].Select(Function(x) New KeyValuePair(Of ULong, TimeSpan)(x.Key, TimeSpan.Parse(x.Value, _provider))).ToImmutableDictionary
                 End Select
         End Select
         Throw New UnsupportedTypeException
     End Function
 
-    Private Function BuildTable(Of T As {IStoreableObject})(obj As T) As String
+    Private Function BuildTable(Of T As IStoreableObject)(obj As T) As String
         Dim sb As New StringBuilder
         With sb
             .AppendLine($"CREATE TABLE {obj.TableName} (")
@@ -1140,7 +1140,7 @@ Public NotInheritable Class SQLExpressClient
         Return sb.ToString
     End Function
 
-    Private Function BuildInsert(Of T As {IStoreableObject})(obj As T, properties As ImmutableArray(Of PropertyInfo), con As SqlConnection) As (query As String, parameters As SqlParameter())
+    Private Function BuildInsert(Of T As IStoreableObject)(obj As T, properties As ImmutableArray(Of PropertyInfo), con As SqlConnection) As (query As String, parameters As SqlParameter())
         Dim parameters = properties.Select(Function(p)
                                                Dim parameter As New SqlParameter With
                                                {
@@ -1169,17 +1169,13 @@ Public NotInheritable Class SQLExpressClient
 
     Private Function GetDbType([property] As PropertyInfo) As DbType
         Select Case GetNullableTypeName([property].PropertyType)
-            Case "UInt64" : Return DbType.Decimal
-            Case "Int64" : Return DbType.Int64
-            Case "UInt32" : Return DbType.Decimal
+            Case "UInt64", "UInt32", "UInt16", "SByte", "Decimal" : Return DbType.Decimal
+            Case "Int64", "TimeSpan" : Return DbType.Int64
             Case "Int32" : Return DbType.Int32
-            Case "UInt16" : Return DbType.Decimal
             Case "Int16" : Return DbType.Int16
             Case "Boolean" : Return DbType.Boolean
             Case "String" : Return DbType.AnsiString
             Case "Byte" : Return DbType.Byte
-            Case "SByte" : Return DbType.Decimal
-            Case "Decimal" : Return DbType.Decimal
             Case "Double" : Return DbType.Double
             Case "Single" : Return DbType.Single
             Case "DateTime" : Return DbType.DateTime2
@@ -1188,7 +1184,7 @@ Public NotInheritable Class SQLExpressClient
         Throw New UnsupportedTypeException()
     End Function
 
-    Friend Async Function InsertTupleAsync(Of T As {IStoreableObject})(obj As T, prop As PropertyInfo, con As SqlConnection) As Task
+    Friend Async Function InsertTupleAsync(Of T As IStoreableObject)(obj As T, prop As PropertyInfo, con As SqlConnection) As Task
         Dim sb As New StringBuilder
         Dim pivot = Integer.Parse(prop.PropertyType.Name.Substring(prop.PropertyType.Name.IndexOf("`"c) + 1))
         With sb
@@ -1202,7 +1198,7 @@ Public NotInheritable Class SQLExpressClient
         Await SendQueryAsync(sb.ToString)
     End Function
 
-    Private Async Function InsertCollectionAsync(Of T As {IStoreableObject})(obj As T, prop As PropertyInfo, con As SqlConnection) As Task
+    Private Async Function InsertCollectionAsync(Of T As IStoreableObject)(obj As T, prop As PropertyInfo, con As SqlConnection) As Task
         Dim generic = TryCast(prop.GetValue(obj), ICollection)
         If generic Is Nothing Then Return
 
@@ -1226,12 +1222,12 @@ Public NotInheritable Class SQLExpressClient
     End Function
 
 
-    Private Async Function CheckObjectExistenceAsync(Of T As {IStoreableObject})(obj As T, con As SqlConnection) As Task(Of Boolean)
+    Private Async Function CheckObjectExistenceAsync(Of T As IStoreableObject)(obj As T, con As SqlConnection) As Task(Of Boolean)
         Return (Await SendScalarAsync(Of Integer)($"IF OBJECT_ID('{obj.TableName}') IS NULL SELECT 0" & vbCrLf &
                                                    "ELSE SELECT 1;", con).ConfigureAwait(False)) = 1
     End Function
 
-    Private Function CheckObjectExistence(Of T As {IStoreableObject})(obj As T, con As SqlConnection) As Boolean
+    Private Function CheckObjectExistence(Of T As IStoreableObject)(obj As T, con As SqlConnection) As Boolean
         Return SendScalar(Of Integer)($"IF OBJECT_ID('{obj.TableName}') IS NULL SELECT 0" & vbCrLf &
                                         "ELSE SELECT 1;", con) = 1
     End Function
@@ -1239,15 +1235,15 @@ Public NotInheritable Class SQLExpressClient
     Private Function ParseType([property] As PropertyInfo, Optional stringLimit As Integer? = Nothing) As String
         Select Case GetNullableTypeName([property].PropertyType)
             Case "UInt64" : Return "DECIMAL(20,0)"
-            Case "Int64" : Return "BIGINT"
+            Case "Int64", "TimeSpan" : Return "BIGINT"
             Case "UInt32" : Return "DECIMAL(10,0)"
             Case "Int32" : Return "INT"
             Case "UInt16" : Return "DECIMAL(5,0)"
             Case "Int16" : Return "SMALLINT"
             Case "Boolean" : Return "BIT"
             Case "String" : Return $"VARCHAR({GetVarcharLength([property])})"
-            Case "Byte" : Return "DECIMAL(3,0)"
-            Case "SByte" : Return "TINYINT"
+            Case "Byte" : Return "TINYINT"
+            Case "SByte" : Return "DECIMAL(3,0)"
             Case "Decimal" : Return "DECIMAL"
             Case "Double" : Return "FLOAT"
             Case "Single" : Return "REAL"
@@ -1258,13 +1254,13 @@ Public NotInheritable Class SQLExpressClient
         Return Nothing
     End Function
 
-    Private Function GetSqlValue(Of T As {IStoreableObject})([property] As PropertyInfo, ByRef obj As T) As String
+    Private Function GetSqlValue(Of T As IStoreableObject)([property] As PropertyInfo, ByRef obj As T) As String
         Dim value = [property].GetValue(obj)
         Dim typeName = ParseType([property])
 
         Select Case typeName
             Case "DECIMAL(20,0)", "BIGINT", "DECIMAL(10,0)", "SMALLINT", "DECIMAL(5,0)", "INT", "DECIMAL(3,0)", "TINYINT", "DECIMAL", "FLOAT", "REAL" : Return $"{If(ParseSQLDecimal(value), "NULL")}"
-            Case "DATETIME2", "TIME", "DATETIMEOFFSET" : Return $"{If(value Is Nothing, "NULL", FixSQLDate(value))}"
+            Case "DATETIME2", "DATETIMEOFFSET" : Return $"{If(value Is Nothing, "NULL", FixSQLDate(value))}"
             Case $"VARCHAR({GetVarcharLength([property])})" : Return $"'{If(value, "NULL")}'"
             Case "BIT" : Return $"{If(DirectCast(value, Boolean), 1, 0)}"
             Case Else : Throw New UnsupportedTypeException
