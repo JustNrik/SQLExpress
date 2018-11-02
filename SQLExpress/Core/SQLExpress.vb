@@ -11,6 +11,7 @@ Imports System.Text
 Imports System.Xml
 Imports SQLExpress.Extensions
 Imports System.Collections.ObjectModel
+Imports System.Data
 #End Region
 Public NotInheritable Class SQLExpressClient
 #Region "Events"
@@ -34,6 +35,8 @@ Public NotInheritable Class SQLExpressClient
     Private _logEnable As Boolean
     Private _format As String
     Private _provider As IFormatProvider
+    Private ReadOnly _specialTypes As String() = {"UInt16", "UInt32", "UInt64", "SByte"}
+    Private ReadOnly _dict As New ConcurrentDictionary(Of ULong, ImmutableArray(Of PropertyInfo))
 #End Region
 #Region "Properties"
     ''' <summary>
@@ -190,11 +193,11 @@ Public NotInheritable Class SQLExpressClient
         Using con As New SqlConnection(_connectionString) : Await con.OpenAsync.ConfigureAwait(False)
             For Each obj In objs
                 If Not Await CheckObjectExistenceAsync(obj, con).ConfigureAwait(False) Then
-                    Await SendQueryAsync(BuildTable(obj), con).ConfigureAwait(False)
-                    Dim innerObjs = GetTypes(obj).Distinct.ToImmutableArray
+                    Await SendQueryAsync(BuildTable(obj),, con).ConfigureAwait(False)
+                    Dim innerObjs = GetTypes(obj).Distinct.ToArray
                     For Each innerObj In innerObjs
                         If Not Await CheckObjectExistenceAsync(innerObj, con) Then _
-                            Await SendQueryAsync(BuildTable(innerObj), con).ConfigureAwait(False)
+                            Await SendQueryAsync(BuildTable(innerObj),, con).ConfigureAwait(False)
                     Next
                 End If
             Next
@@ -209,10 +212,10 @@ Public NotInheritable Class SQLExpressClient
         Using con As New SqlConnection(_connectionString) : con.Open()
             For Each obj In objs
                 If Not CheckObjectExistence(obj, con) Then
-                    SendQuery(BuildTable(obj), con)
+                    SendQuery(BuildTable(obj),, con)
                     Dim innerObjs = GetTypes(obj).Distinct.ToImmutableArray
                     For Each innerObj In innerObjs
-                        If Not CheckObjectExistence(innerObj, con) Then SendQuery(BuildTable(innerObj), con)
+                        If Not CheckObjectExistence(innerObj, con) Then SendQuery(BuildTable(innerObj),, con)
                     Next
                 End If
             Next
@@ -230,7 +233,7 @@ Public NotInheritable Class SQLExpressClient
                                      "    ObjName VARCHAR(50) NOT NULL," & vbCrLf &
                                      "    PropName VARCHAR(50) NOT NULL," & vbCrLf &
                                      "    RawKey VARCHAR(20) NOT NULL," & vbCrLf &
-                                     "    RawValue VARCHAR(50));", con).ConfigureAwait(False)
+                                     "    RawValue VARCHAR(50));",, con).ConfigureAwait(False)
 
             End If
 
@@ -247,7 +250,7 @@ Public NotInheritable Class SQLExpressClient
                                      "    Item4 VARCHAR(50)," & vbCrLf &
                                      "    Item5 VARCHAR(50)," & vbCrLf &
                                      "    Item6 VARCHAR(50)," & vbCrLf &
-                                     "    Item7 VARCHAR(50));", con).ConfigureAwait(False)
+                                     "    Item7 VARCHAR(50));",, con).ConfigureAwait(False)
             End If
         End Using
     End Function
@@ -262,7 +265,7 @@ Public NotInheritable Class SQLExpressClient
                           "    ObjName VARCHAR(50) NOT NULL," & vbCrLf &
                           "    PropName VARCHAR(50) NOT NULL," & vbCrLf &
                           "    RawKey INT NOT NULL," & vbCrLf &
-                          "    RawValue VARCHAR(50));", con)
+                          "    RawValue VARCHAR(50));",, con)
 
             End If
 
@@ -279,7 +282,7 @@ Public NotInheritable Class SQLExpressClient
                           "    Item4 VARCHAR(50)," & vbCrLf &
                           "    Item5 VARCHAR(50)," & vbCrLf &
                           "    Item6 VARCHAR(50)," & vbCrLf &
-                          "    Item7 VARCHAR(50),", con)
+                          "    Item7 VARCHAR(50),",, con)
             End If
         End Using
     End Sub
@@ -379,7 +382,10 @@ Public NotInheritable Class SQLExpressClient
     End Function
 
     Private Async Function InnerCreateNewObjectAsync(Of T As {IStoreableObject})(obj As T, con As SqlConnection) As Task(Of T)
-        Dim properties = GetAllStoreablePropierties(obj.GetType.GetProperties)
+        Dim properties As ImmutableArray(Of PropertyInfo) = Nothing
+
+        If Not (_useCache AndAlso _dict.TryGetValue(obj.Id, properties)) Then properties = GetAllStoreablePropierties(obj.GetType.GetProperties)
+
         Dim primitives = GetPrivitimes(properties)
         Dim collections = properties.Where(Function(x) IsCollection(x))
         Dim types = properties.Where(Function(x) IsClassOrStruct(x))
@@ -389,13 +395,14 @@ Public NotInheritable Class SQLExpressClient
         If properties.Any(Function(x) x.GetCustomAttribute(Of NotNullAttribute)(True) IsNot Nothing AndAlso
                                       x.GetValue(obj) Is Nothing) Then Throw New NullPropertyException
 
-        Await SendQueryAsync(BuildInsert(obj, primitives, con), con).ConfigureAwait(False)
+        Dim request = BuildInsert(obj, primitives, con)
+        Await SendQueryAsync(request.query, request.parameters, con).ConfigureAwait(False)
 
         If types.Count > 0 Then
             For Each prop In types
                 Dim propObj = TryCast(prop.GetValue(obj), IStoreableObject)
                 If propObj IsNot Nothing AndAlso Not Await CheckObjectExistenceAsync(propObj, con).ConfigureAwait(False) Then _
-                    Await SendQueryAsync(BuildTable(propObj), con).ConfigureAwait(False)
+                    Await SendQueryAsync(BuildTable(propObj),, con).ConfigureAwait(False)
             Next
         End If
 
@@ -472,13 +479,16 @@ Public NotInheritable Class SQLExpressClient
 
         If Not Await CheckExistenceAsync(toLoad, con).ConfigureAwait(False) Then Return Await InnerCreateNewObjectAsync(toLoad, con).ConfigureAwait(False)
 
-        Dim properties = GetAllStoreablePropierties(toLoad.GetType.GetProperties)
+        Dim properties As New ImmutableArray(Of PropertyInfo)
+
+        If Not (_useCache AndAlso _dict.TryGetValue(toLoad.Id, properties)) Then properties = GetAllStoreablePropierties(toLoad.GetType.GetProperties)
+
         Dim primitives = GetPrivitimes(properties)
         Dim primitivesName = primitives.Select(Function(x) x.Name)
-        Dim collections = properties.Where(Function(x) IsCollection(x)).ToImmutableArray
+        Dim collections = properties.Where(Function(x) IsCollection(x))
         Dim collectionNames = collections.Select(Function(x) x.Name)
-        Dim types = properties.Where(Function(x) IsClassOrStruct(x)).ToImmutableArray
-        Dim tuples = properties.Where(Function(x) IsTuple(x)).ToImmutableArray
+        Dim types = properties.Where(Function(x) IsClassOrStruct(x))
+        Dim tuples = properties.Where(Function(x) IsTuple(x))
 
         If properties.Length = 0 Then Throw New EmptyObjectException
         If properties.Any(Function(x) x.GetCustomAttribute(Of NotNullAttribute)(True) IsNot Nothing AndAlso
@@ -620,6 +630,7 @@ Public NotInheritable Class SQLExpressClient
             Return newObj
         End If
     End Function
+
     ''' <summary>
     ''' Updates the Object, creates a new one if it doesn't exist.
     ''' </summary>
@@ -646,10 +657,13 @@ Public NotInheritable Class SQLExpressClient
 
     Private Async Function InnerRemoveObjectAsync(Of T As {IStoreableObject})(toRemove As T, con As SqlConnection) As Task
         If Not Await CheckExistenceAsync(toRemove, con).ConfigureAwait(False) Then Return
-        Await SendQueryAsync($"DELETE FROM {toRemove.TableName} WHERE Id = {toRemove.Id};", con).ConfigureAwait(False)
-        Await SendQueryAsync($"DELETE FROM _enumerablesOfT WHERE Id = {toRemove.Id};", con).ConfigureAwait(False)
-        Await SendQueryAsync($"DELETE FROM _tuplesOfT WHERE Id = {toRemove.Id};", con).ConfigureAwait(False)
-        If _useCache AndAlso Cache.ContainsKey(toRemove.Id) Then Cache.TryRemove(toRemove.Id, Nothing)
+        Await SendQueryAsync($"DELETE FROM {toRemove.TableName} WHERE Id = {toRemove.Id};",, con).ConfigureAwait(False)
+        Await SendQueryAsync($"DELETE FROM _enumerablesOfT WHERE Id = {toRemove.Id};",, con).ConfigureAwait(False)
+        Await SendQueryAsync($"DELETE FROM _tuplesOfT WHERE Id = {toRemove.Id};",, con).ConfigureAwait(False)
+        If _useCache AndAlso Cache.ContainsKey(toRemove.Id) Then
+            Cache.TryRemove(toRemove.Id, Nothing)
+            _dict.TryRemove(toRemove.Id, Nothing)
+        End If
     End Function
     ''' <summary>
     ''' Removes the Object if exists
@@ -684,15 +698,17 @@ Public NotInheritable Class SQLExpressClient
     ''' <param name="query"></param>
     ''' <param name="con"></param>
     ''' <returns></returns>
-    Public Async Function SendQueryAsync(query As String, Optional con As SqlConnection = Nothing) As Task
+    Public Async Function SendQueryAsync(query As String, Optional parameters As SqlParameter() = Nothing, Optional con As SqlConnection = Nothing) As Task
         If con Is Nothing Then
             Using conn = New SqlConnection(_connectionString) : Await conn.OpenAsync.ConfigureAwait(False)
                 Using cmd As New SqlCommand(query, conn)
+                    If parameters IsNot Nothing Then cmd.Parameters.AddRange(parameters)
                     Await cmd.ExecuteNonQueryAsync.ConfigureAwait(False)
                 End Using
             End Using
         Else
             Using cmd As New SqlCommand(query, con)
+                If parameters IsNot Nothing Then cmd.Parameters.AddRange(parameters)
                 Await cmd.ExecuteNonQueryAsync.ConfigureAwait(False)
             End Using
         End If
@@ -702,8 +718,8 @@ Public NotInheritable Class SQLExpressClient
     ''' </summary>
     ''' <param name="query"></param>
     ''' <param name="con"></param>
-    Public Sub SendQuery(query As String, Optional con As SqlConnection = Nothing)
-        SendQueryAsync(query, con).Wait()
+    Public Sub SendQuery(query As String, Optional parameters As SqlParameter() = Nothing, Optional con As SqlConnection = Nothing)
+        SendQueryAsync(query, parameters, con).Wait()
     End Sub
 #End Region
 #Region "SendScalar"
@@ -754,7 +770,7 @@ Public NotInheritable Class SQLExpressClient
                 Using cmd As New SqlCommand(query, conn)
                     Using r = cmd.ExecuteReader
                         While r.Read
-                            Yield If(IsDBNull(r.Item(0)), Nothing, If(TypeOf r.Item(0) Is T, DirectCast(r.Item(0), T), CType(r.Item(0), T)))
+                            Yield If(IsDBNull(r.Item(0)), Nothing, DirectCast(r.Item(0), T))
                         End While
                     End Using
                 End Using
@@ -763,7 +779,7 @@ Public NotInheritable Class SQLExpressClient
             Using cmd As New SqlCommand(query, con)
                 Using r = cmd.ExecuteReader
                     While r.Read
-                        Yield If(IsDBNull(r.Item(0)), Nothing, If(TypeOf r.Item(0) Is T, DirectCast(r.Item(0), T), CType(r.Item(0), T)))
+                        Yield If(IsDBNull(r.Item(0)), Nothing, DirectCast(r.Item(0), T))
                     End While
                 End Using
             End Using
@@ -1124,9 +1140,52 @@ Public NotInheritable Class SQLExpressClient
         Return sb.ToString
     End Function
 
-    Private Function BuildInsert(Of T As {IStoreableObject})(obj As T, properties As ImmutableArray(Of PropertyInfo), con As SqlConnection) As String
-        Return $"INSERT INTO {obj.TableName} ({properties.Select(Function(x) x.Name).Aggregate(Function(x, y) $"{x}, {y}")})" & vbCrLf &
-               $"VALUES ({properties.Select(Function(x) GetSqlValue(x, obj)).Aggregate(Function(x, y) $"{x}, {y}")});"
+    Private Function BuildInsert(Of T As {IStoreableObject})(obj As T, properties As ImmutableArray(Of PropertyInfo), con As SqlConnection) As (query As String, parameters As SqlParameter())
+        Dim parameters = properties.Select(Function(p)
+                                               Dim parameter As New SqlParameter With
+                                               {
+                                                   .DbType = GetDbType(p),
+                                                   .ParameterName = "@" & p.Name,
+                                                   .Value = p.GetValue(obj)
+                                               }
+                                               Dim typeName = GetNullableTypeName(p.PropertyType)
+                                               With parameter
+                                                   If .DbType = DbType.Decimal AndAlso
+                                                   _specialTypes.Any(Function(x) x = typeName) Then
+                                                       .Scale = 0
+                                                       Select Case typeName
+                                                           Case "UInt64" : .Precision = 20
+                                                           Case "UInt32" : .Precision = 10
+                                                           Case "UInt16" : .Precision = 5
+                                                           Case "SByte" : .Precision = 3
+                                                       End Select
+                                                   End If
+                                               End With
+                                               Return parameter
+                                           End Function).ToArray()
+        Return ($"INSERT INTO {obj.TableName} ({properties.Select(Function(x) x.Name).Aggregate(Function(x, y) $"{x}, {y}")})" & vbCrLf &
+                $"VALUES (@{properties.Select(Function(x) x.Name).Aggregate(Function(x, y) $"{x}, @{y}")});", parameters)
+    End Function
+
+    Private Function GetDbType([property] As PropertyInfo) As DbType
+        Select Case GetNullableTypeName([property].PropertyType)
+            Case "UInt64" : Return DbType.Decimal
+            Case "Int64" : Return DbType.Int64
+            Case "UInt32" : Return DbType.Decimal
+            Case "Int32" : Return DbType.Int32
+            Case "UInt16" : Return DbType.Decimal
+            Case "Int16" : Return DbType.Int16
+            Case "Boolean" : Return DbType.Boolean
+            Case "String" : Return DbType.AnsiString
+            Case "Byte" : Return DbType.Byte
+            Case "SByte" : Return DbType.Decimal
+            Case "Decimal" : Return DbType.Decimal
+            Case "Double" : Return DbType.Double
+            Case "Single" : Return DbType.Single
+            Case "DateTime" : Return DbType.DateTime2
+            Case "DateTimeOffset" : Return DbType.DateTimeOffset
+        End Select
+        Throw New UnsupportedTypeException()
     End Function
 
     Friend Async Function InsertTupleAsync(Of T As {IStoreableObject})(obj As T, prop As PropertyInfo, con As SqlConnection) As Task
@@ -1155,12 +1214,12 @@ Public NotInheritable Class SQLExpressClient
 
                 If Not Await CheckExistenceAsync(toLoad, con) Then Await InnerCreateNewObjectAsync(toLoad, con)
                 Await SendQueryAsync($"INSERT INTO _enumerablesOfT (Id, ObjName, PropName, RawKey, RawValue)" & vbCrLf &
-                                     $"VALUES ({obj.Id}, '{obj.TableName}', '{prop.Name}', '{toLoad.Id}', '{toLoad.TableName}');", con)
+                                     $"VALUES ({obj.Id}, '{obj.TableName}', '{prop.Name}', '{toLoad.Id}', '{toLoad.TableName}');",, con)
             Next
         Else
             For x = 0 To generic.Count - 1
                 Await SendQueryAsync($"INSERT INTO _enumerablesOfT (Id, ObjName, PropName, RawKey, RawValue)" & vbCrLf &
-                                     $"VALUES ({obj.Id}, '{obj.TableName}', '{prop.Name}', '{x}', '{ParseSQLDecimal(generic(x))}');", con)
+                                     $"VALUES ({obj.Id}, '{obj.TableName}', '{prop.Name}', '{x}', '{ParseSQLDecimal(generic(x))}');",, con)
             Next
         End If
 
@@ -1184,7 +1243,7 @@ Public NotInheritable Class SQLExpressClient
             Case "UInt32" : Return "DECIMAL(10,0)"
             Case "Int32" : Return "INT"
             Case "UInt16" : Return "DECIMAL(5,0)"
-            Case "Int16", "UInt16" : Return "SMALLINT"
+            Case "Int16" : Return "SMALLINT"
             Case "Boolean" : Return "BIT"
             Case "String" : Return $"VARCHAR({GetVarcharLength([property])})"
             Case "Byte" : Return "DECIMAL(3,0)"
@@ -1194,7 +1253,6 @@ Public NotInheritable Class SQLExpressClient
             Case "Single" : Return "REAL"
             Case "DateTime" : Return "DATETIME2"
             Case "DateTimeOffset" : Return "DATETIMEOFFSET"
-            Case "TimeSpan" : Return "TIME"
         End Select
         Throw New UnsupportedTypeException
         Return Nothing
