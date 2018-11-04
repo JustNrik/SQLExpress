@@ -1146,7 +1146,7 @@ Public NotInheritable Class SQLExpressClient
                                                {
                                                    .DbType = GetDbType(p),
                                                    .ParameterName = "@" & p.Name,
-                                                   .Value = p.GetValue(obj)
+                                                   .Value = If(p.GetValue(obj), DBNull)
                                                }
                                                Dim typeName = GetNullableTypeName(p.PropertyType)
                                                With parameter
