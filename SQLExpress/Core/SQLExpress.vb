@@ -657,9 +657,9 @@ Public NotInheritable Class SQLExpressClient
 
     Private Async Function InnerRemoveObjectAsync(Of T As IStoreableObject)(toRemove As T, con As SqlConnection) As Task
         If Not Await CheckExistenceAsync(toRemove, con).ConfigureAwait(False) Then Return
-        Await SendQueryAsync($"DELETE FROM {toRemove.TableName} WHERE Id = {toRemove.Id};",, con).ConfigureAwait(False)
-        Await SendQueryAsync($"DELETE FROM _enumerablesOfT WHERE Id = {toRemove.Id};",, con).ConfigureAwait(False)
-        Await SendQueryAsync($"DELETE FROM _tuplesOfT WHERE Id = {toRemove.Id};",, con).ConfigureAwait(False)
+        Await SendQueryAsync($"DELETE FROM {toRemove.TableName} WHERE Id = {toRemove.Id};" & vbCrLf &
+                             $"DELETE FROM _enumerablesOfT WHERE Id = {toRemove.Id};" & vbCrLf &
+                             $"DELETE FROM _tuplesOfT WHERE Id = {toRemove.Id};",, con).ConfigureAwait(False)
         If _useCache AndAlso Cache.ContainsKey(toRemove.Id) Then
             Cache.TryRemove(toRemove.Id, Nothing)
             _dict.TryRemove(toRemove.Id, Nothing)
