@@ -384,12 +384,12 @@ Public NotInheritable Class SQLExpressClient
     Private Async Function InnerCreateNewObjectAsync(Of T As IStoreableObject)(obj As T, con As SqlConnection) As Task(Of T)
         Dim properties As ImmutableArray(Of PropertyInfo) = Nothing
 
-        If Not (_useCache AndAlso _dict.TryGetValue(obj.Id, properties)) Then properties = GetAllStoreablePropierties(obj.GetType.GetProperties)
+        If Not _dict.TryGetValue(obj.Id, properties) Then properties = GetAllStoreablePropierties(obj.GetType().GetProperties)
 
         Dim primitives = GetPrivitimes(properties)
-        Dim collections = properties.Where(Function(x) IsCollection(x))
-        Dim types = properties.Where(Function(x) IsClassOrStruct(x))
-        Dim tuples = properties.Where(Function(x) IsTuple(x))
+        Dim collections = properties.Where(Function(x) IsCollection(x)).ToArray()
+        Dim types = properties.Where(Function(x) IsClassOrStruct(x)).ToArray()
+        Dim tuples = properties.Where(Function(x) IsTuple(x)).ToArray()
 
         If properties.Length = 0 Then Throw New EmptyObjectException
         If properties.Any(Function(x) x.GetCustomAttribute(Of NotNullAttribute)(True) IsNot Nothing AndAlso
@@ -398,7 +398,7 @@ Public NotInheritable Class SQLExpressClient
         Dim request = BuildInsert(obj, primitives, con)
         Await SendQueryAsync(request.query, request.parameters, con).ConfigureAwait(False)
 
-        If types.Count > 0 Then
+        If types.Length > 0 Then
             For Each prop In types
                 Dim propObj = TryCast(prop.GetValue(obj), IStoreableObject)
                 If propObj IsNot Nothing AndAlso Not Await CheckObjectExistenceAsync(propObj, con).ConfigureAwait(False) Then _
@@ -406,13 +406,13 @@ Public NotInheritable Class SQLExpressClient
             Next
         End If
 
-        If collections.Count > 0 Then
+        If collections.Length > 0 Then
             For Each collection In collections
                 Await InsertCollectionAsync(obj, collection, con)
             Next
         End If
 
-        If tuples.Count > 0 Then
+        If tuples.Length > 0 Then
             For Each tuple In tuples
                 Await InsertTupleAsync(obj, tuple, con)
             Next
@@ -481,14 +481,14 @@ Public NotInheritable Class SQLExpressClient
 
         Dim properties As New ImmutableArray(Of PropertyInfo)
 
-        If Not (_useCache AndAlso _dict.TryGetValue(toLoad.Id, properties)) Then properties = GetAllStoreablePropierties(toLoad.GetType.GetProperties)
+        If Not _dict.TryGetValue(toLoad.Id, properties) Then properties = GetAllStoreablePropierties(toLoad.GetType.GetProperties)
 
         Dim primitives = GetPrivitimes(properties)
         Dim primitivesName = primitives.Select(Function(x) x.Name)
-        Dim collections = properties.Where(Function(x) IsCollection(x))
+        Dim collections = properties.Where(Function(x) IsCollection(x)).ToArray()
         Dim collectionNames = collections.Select(Function(x) x.Name)
-        Dim types = properties.Where(Function(x) IsClassOrStruct(x))
-        Dim tuples = properties.Where(Function(x) IsTuple(x))
+        Dim types = properties.Where(Function(x) IsClassOrStruct(x)).ToArray()
+        Dim tuples = properties.Where(Function(x) IsTuple(x)).ToArray()
 
         If properties.Length = 0 Then Throw New EmptyObjectException
         If properties.Any(Function(x) x.GetCustomAttribute(Of NotNullAttribute)(True) IsNot Nothing AndAlso
@@ -624,10 +624,7 @@ Public NotInheritable Class SQLExpressClient
             Return Await InnerCreateNewObjectAsync(toUpdate, con).ConfigureAwait(False)
         Else
             Await InnerRemoveObjectAsync(toUpdate, con).ConfigureAwait(False)
-            If _useCache AndAlso Cache.ContainsKey(toUpdate.Id) Then Cache.TryRemove(toUpdate.Id, Nothing)
-            Dim newObj = Await InnerCreateNewObjectAsync(toUpdate, con).ConfigureAwait(False)
-            If _useCache AndAlso Cache.ContainsKey(toUpdate.Id) Then Cache(toUpdate.Id) = newObj Else Cache.TryAdd(newObj.Id, newObj)
-            Return newObj
+            Return Await InnerCreateNewObjectAsync(toUpdate, con).ConfigureAwait(False)
         End If
     End Function
 
@@ -660,10 +657,9 @@ Public NotInheritable Class SQLExpressClient
         Await SendQueryAsync($"DELETE FROM {toRemove.TableName} WHERE Id = {toRemove.Id};" & vbCrLf &
                              $"DELETE FROM _enumerablesOfT WHERE Id = {toRemove.Id};" & vbCrLf &
                              $"DELETE FROM _tuplesOfT WHERE Id = {toRemove.Id};",, con).ConfigureAwait(False)
-        If _useCache AndAlso Cache.ContainsKey(toRemove.Id) Then
-            Cache.TryRemove(toRemove.Id, Nothing)
-            _dict.TryRemove(toRemove.Id, Nothing)
-        End If
+
+        If _useCache AndAlso Cache.ContainsKey(toRemove.Id) Then Cache.TryRemove(toRemove.Id, Nothing)
+        _dict.TryRemove(toRemove.Id, Nothing)
     End Function
     ''' <summary>
     ''' Removes the Object if exists
@@ -1140,7 +1136,7 @@ Public NotInheritable Class SQLExpressClient
         Return sb.ToString
     End Function
 
-    Private Function BuildInsert(Of T As IStoreableObject)(obj As T, properties As ImmutableArray(Of PropertyInfo), con As SqlConnection) As (query As String, parameters As SqlParameter())
+    Private Function BuildInsert(Of T As IStoreableObject)(obj As T, properties As PropertyInfo(), con As SqlConnection) As (query As String, parameters As SqlParameter())
         Dim parameters = properties.Select(Function(p)
                                                Dim parameter As New SqlParameter With
                                                {

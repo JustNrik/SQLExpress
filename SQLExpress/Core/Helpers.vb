@@ -36,11 +36,11 @@ Friend Module Helpers
                 Order By [property].GetCustomAttribute(Of StoreAttribute)(True).Priority Descending).ToImmutableArray
     End Function
 
-    Friend Function GetPrivitimes(properties As ImmutableArray(Of PropertyInfo)) As ImmutableArray(Of PropertyInfo)
+    Friend Function GetPrivitimes(properties As ImmutableArray(Of PropertyInfo)) As PropertyInfo()
         Return (From [property] In properties
                 Where Not IsCollection([property]) AndAlso
                       Not IsClassOrStruct([property]) AndAlso
-                      Not IsTuple([property])).ToImmutableArray
+                      Not IsTuple([property])).ToArray()
     End Function
 
     Friend Function IsTuple([property] As PropertyInfo) As Boolean
